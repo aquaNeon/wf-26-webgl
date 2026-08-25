@@ -221,6 +221,7 @@ export function init(root) {
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
+  let kbd = false;   // was the last interaction keyboard-driven?
   let running = false, raf = 0, lastT = 0, accum = 0;
   let destroyed = false;
   const H = 1 / 120;                                 // sim substep
@@ -708,8 +709,11 @@ export function init(root) {
     }
 
     root.setAttribute('data-mw-open', '');
+    // Only chase focus for keyboard users. Moving focus after a click makes
+    // the browser paint a focus ring around the card, which reads as a thin
+    // white border around the artwork.
     const focusTarget = cardCloses[i] || closeBtn;
-    if (focusTarget) focusTarget.focus({ preventScroll: true });
+    if (kbd && focusTarget) focusTarget.focus({ preventScroll: true });
     wake();
   }
 
@@ -720,7 +724,7 @@ export function init(root) {
     oTarget = 0;                        // same spring, retargeted: an
     rowFrom = null;                     // interrupt is continuous by construction
     root.removeAttribute('data-mw-open');
-    cards[activeIndex].focus({ preventScroll: true });
+    if (kbd) cards[activeIndex].focus({ preventScroll: true });
     wake();
   }
 
@@ -739,6 +743,7 @@ export function init(root) {
   };
 
   const onDown = (e) => {
+    kbd = false;
     if (isOpen || e.button !== 0) return;
     const hit = e.target.closest('[data-mw="card"]');
     downCard = hit ? cards.indexOf(hit) : -1;
@@ -797,7 +802,7 @@ export function init(root) {
       openCard(i);
     };
     const key = (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(i); }
+      if (e.key === 'Enter' || e.key === ' ') { kbd = true; e.preventDefault(); openCard(i); }
     };
     card.addEventListener('pointerenter', enter);
     card.addEventListener('pointerleave', leave);
@@ -807,6 +812,7 @@ export function init(root) {
   });
 
   const onKey = (e) => {
+    kbd = true;
     if (e.key === 'Escape' && isOpen) { closeCard(); return; }
     if (isOpen) return;
     if (e.key === 'ArrowRight') { velocity = 0; target = Math.round(target) + 1; wake(); }
@@ -928,7 +934,7 @@ function injectCss() {
 [data-webgl-canvas][data-mw-dragging]{cursor:grabbing}
 [data-webgl-canvas] [data-webgl-item]{position:absolute;margin:0;padding:0;border:0;background:none;
   width:${card};height:calc(${card} * 851 / 1440);transform-origin:50% 50%;cursor:pointer;outline:none}
-[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:2px solid currentColor;outline-offset:4px}
+[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:var(--mw-focus, 2px solid currentColor);outline-offset:4px}
 [data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
 /* hidden up front so the raw stacked images never flash before init;
    the no-WebGL fallback sets visibility:visible inline, which wins */
@@ -965,7 +971,8 @@ function injectCss() {
    nothing — otherwise a background on the card or its wrapper shows through
    as a plain rectangle behind the flying card */
 [data-webgl-canvas] [data-webgl-item]{position:absolute!important}
-[data-mw-gl] [data-webgl-item]{background:none!important;border:0!important;box-shadow:none!important}
+[data-mw-gl] [data-webgl-item]:not(:focus-visible){background:none!important;border:0!important;
+  box-shadow:none!important;outline:0!important}
 [data-mw-gl] [data-webgl-item] > *{visibility:hidden!important}
 [data-mw-shell]{position:absolute!important;inset:0!important;
   width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;
