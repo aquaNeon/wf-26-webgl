@@ -18,6 +18,15 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const clamp01 = (v) => clamp(v, 0, 1);
 const lerp = (a, b, t) => a + (b - a) * t;
 
+/* data-webgl-pin="top-left" and friends centre an element ON that corner of
+   the open card, which otherwise needs a -50%/-50% transform layered on top
+   of the offsets. A bare data-webgl-pin leaves positioning to the author. */
+const PIN_SPOTS = {
+  'top-left': ['0%', '0%'], 'top-right': ['100%', '0%'],
+  'bottom-left': ['0%', '100%'], 'bottom-right': ['100%', '100%'],
+  center: ['50%', '50%'],
+};
+
 export function init(root) {
   if (root.dataset.mwInit) return root._mw;
   root.dataset.mwInit = 'true';
@@ -106,6 +115,7 @@ export function init(root) {
       // its ancestors would recreate the section itself inside the layer
       p._mwHome = p.parentNode;
       tipLayer.appendChild(p);
+      applyPin(p);
     });
   }
   let activeTip = null;
@@ -133,6 +143,19 @@ export function init(root) {
       mount = shell;
     });
     mount.appendChild(node);
+    applyPin(node);
+  }
+
+  function applyPin(node) {
+    const spot = PIN_SPOTS[(node.dataset.webglPin || '').trim()];
+    if (!spot) return;
+    node.style.position = 'absolute';
+    node.style.left = spot[0];
+    node.style.top = spot[1];
+    node.style.right = 'auto';
+    node.style.bottom = 'auto';
+    node.style.margin = '0';
+    node.style.transform = 'translate(-50%, -50%)';
   }
 
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -146,6 +169,10 @@ export function init(root) {
     push: num('push', 0.14),           // neighbour slide-out on open
     chase: num('chase', 0.34),         // how fast a card tracks its slot
     lag: num('lag', 0.72),             // 0 = rigid row, 1 = edges barely keep up
+    // cards of travel across one full pass of the section through the
+    // viewport. 0 = off. Nothing is pinned: the page scrolls normally and
+    // the row simply moves as the section passes.
+    scrollSpan: num('scrollSpan', 0),
     friction: num('friction', 0.93),   // per-frame @60, dt-corrected below
     lerp: reduced ? 1 : num('lerp', 0.11),
     loop: root.dataset.loop !== 'false',
@@ -221,6 +248,7 @@ export function init(root) {
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
+  let scrollOffset = 0;
   let kbd = false;   // was the last interaction keyboard-driven?
   let running = false, raf = 0, lastT = 0, accum = 0;
   let destroyed = false;
@@ -366,6 +394,15 @@ export function init(root) {
     return artRect;
   }
 
+  /* 0 as the section's top edge reaches the bottom of the viewport, 1 as
+     its bottom edge leaves the top — so the row is at its base position
+     when the section is centred, and has swung equally either side. */
+  function scrollProgress() {
+    const r = root.getBoundingClientRect();
+    const total = window.innerHeight + r.height;
+    return total > 0 ? clamp01((window.innerHeight - r.top) / total) : 0.5;
+  }
+
   function relOf(i) {
     let rel = i - current;
     if (cfg.loop) rel = ((rel + n / 2) % n + n) % n - n / 2;
@@ -413,17 +450,26 @@ export function init(root) {
     }
 
     /* -- row inertia + settle (prototype, dt-corrected) */
+    // the section's travel through the viewport is frozen while a card is
+    // open, so the row cannot slide out from under it
+    if (cfg.scrollSpan && activeIndex < 0) {
+      scrollOffset = (scrollProgress() - 0.5) * cfg.scrollSpan;
+    }
+
     if (!dragging && activeIndex < 0) {
       if (Math.abs(velocity) > 0.0015) {
         target += velocity * f60;
         velocity *= Math.pow(cfg.friction, f60);
       } else {
         velocity = 0;
-        target += (Math.round(target) - target) * (reduced ? 1 : kOf(0.16));
+        // scroll-driven rows are free: snapping to a slot would fight the
+        // position the page scroll is asking for
+        if (!cfg.scrollSpan) target += (Math.round(target) - target) * (reduced ? 1 : kOf(0.16));
       }
     }
     if (!cfg.loop) target = clamp(target, 0, n - 1);
-    if (!(flightActive && rowFrom !== null)) current += (target - current) * kOf(cfg.lerp);
+    const goal = target + scrollOffset;
+    if (!(flightActive && rowFrom !== null)) current += (goal - current) * kOf(cfg.lerp);
 
     const frameVel = (current - prevCurrent) / f60;
     prevCurrent = current;
@@ -663,7 +709,7 @@ export function init(root) {
 
     /* -- park when everything is genuinely still */
     const rowAwake = dragging || Math.abs(velocity) > 0.0015 ||
-      Math.abs(target - current) > 0.0008 || Math.abs(vSmooth) > 0.0004;
+      Math.abs(goal - current) > 0.0008 || Math.abs(vSmooth) > 0.0004;
     const chromeAwake = Math.abs(landedT - landedWant) > 0.004 ||
       Math.abs(tipT - tipWant) > 0.004 || Math.abs(closeT - closeWant) > 0.004;
     if (rowAwake || flightActive || simAwake || opAwake || chromeAwake || asmAwake) {
@@ -733,7 +779,9 @@ export function init(root) {
 
   /* ---------- input ---------- */
   const onWheel = (e) => {
-    if (isOpen) return;
+    // in scroll-driven mode the wheel belongs to the page: the section must
+    // scroll past like any other, and the row is dragged, not wheeled
+    if (cfg.scrollSpan || isOpen) return;
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
     if (Math.abs(delta) < 4) return;
     e.preventDefault();
@@ -823,6 +871,7 @@ export function init(root) {
   };
 
   const onResize = () => measure();
+  const onScroll = () => { if (cfg.scrollSpan) wake(); };
   // rAF is suspended in hidden tabs; make sure we resume cleanly
   const onVis = () => { if (!document.hidden) { lastT = performance.now(); wake(); } };
 
@@ -838,6 +887,7 @@ export function init(root) {
   if (closeBtn && !closeAll.includes(closeBtn)) closeBtn.addEventListener('click', onCloseClick);
   addEventListener('keydown', onKey);
   addEventListener('resize', onResize);
+  addEventListener('scroll', onScroll, { passive: true });
   document.addEventListener('visibilitychange', onVis);
 
   /* ---------- instance api ---------- */
@@ -882,6 +932,7 @@ export function init(root) {
       if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       removeEventListener('keydown', onKey);
       removeEventListener('resize', onResize);
+      removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onVis);
       removeEventListener('pointermove', onMove);
       removeEventListener('pointerup', onUp);
@@ -900,7 +951,15 @@ export function init(root) {
       // there is nothing to reset
       if (tipLayer) {
         tipLayer.querySelectorAll('[data-webgl-tag], .webgl_cards_tag, [data-webgl-pin], [data-webgl-close], [data-mw="close"]')
-          .forEach((t) => { if (t._mwHome) { t._mwHome.appendChild(t); delete t._mwHome; } });
+          .forEach((t) => {
+            if (!t._mwHome) return;
+            if (PIN_SPOTS[(t.dataset.webglPin || '').trim()]) {
+              ['position', 'left', 'top', 'right', 'bottom', 'margin', 'transform']
+                .forEach((k) => t.style.removeProperty(k));
+            }
+            t._mwHome.appendChild(t);
+            delete t._mwHome;
+          });
         tipLayer.remove();
       }
       if (wf) {

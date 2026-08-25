@@ -117,6 +117,11 @@ and never touches the tag's own styles. Add `data-webgl-pin` to anything else
 that should anchor to the open card — a close button at the card's top-left,
 for instance — instead of to the viewport.
 
+`data-webgl-pin` also takes a corner: `top-left`, `top-right`, `bottom-left`,
+`bottom-right` or `center` centres the element *on* that corner of the card,
+which otherwise needs a -50%/-50% transform stacked on the offsets. A bare
+`data-webgl-pin` leaves the positioning entirely to your CSS.
+
 Lifted elements keep their ancestors rebuilt as empty same-class shells,
 because Webflow writes nested styles as descendant selectors: without them a
 tag moved out of the card loses everything styled through its parents, and
@@ -142,6 +147,14 @@ comes from `--mw-card-w` and `--mw-stage-h` so Webflow classes can override it.
 ## Reference-markup authoring
 
 Everything on `[data-mw="root"]` (all optional, defaults in `index.js`):
+
+Scroll: `data-scroll-span` — cards of travel across one full pass of the
+section through the viewport (0, the default, is off). Nothing is pinned and
+nothing is hijacked: the page scrolls past normally, the row simply moves as
+the section enters and leaves, and it sits at its base position when the
+section is centred. With it on, the wheel belongs to the page and the row is
+moved by dragging; slot snapping is off, since it would fight the position
+the scroll is asking for.
 
 Row: `data-spacing` `data-skew-y` `data-perspective` `data-push`
 `data-chase` `data-lag` `data-friction` `data-lerp` `data-loop`
