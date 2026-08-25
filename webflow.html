@@ -16,19 +16,25 @@
     font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased; overflow: hidden;
   }
-  .webgl_slider_wrap { position: relative; height: 100svh; }
-  .webgl_slider_contain { position: absolute; top: clamp(24px,6svh,72px); left: 0; right: 0; z-index: 20; pointer-events: none; }
+  /* Heading sits in normal flow, canvas absolutely fills the section —
+     the layout the real site uses. */
+  .webgl_slider_wrap { position: relative; height: 100svh; overflow: hidden; }
+  .webgl_slider_contain { position: relative; z-index: 20; padding-top: clamp(24px,6svh,72px); pointer-events: none; }
   .webgl_slider_heading_center { text-align: center; }
   .heading-component h1 { margin: 0; font-size: clamp(32px,7vw,96px); letter-spacing: -.045em; font-weight: 700; }
 
-  .webgl_canvas { --mw-card-w: clamp(240px, 26cqw, 620px); --mw-backdrop: var(--page-bg); height: 100svh; }
+  .webgl_canvas {
+    --mw-card-w: clamp(240px, 26cqw, 620px);
+    --mw-backdrop: var(--page-bg);
+    position: absolute; inset: 0;      /* must beat the module's default */
+  }
 
   /* The tag block: authored in Webflow, lifted into a screen-space layer
      by the module so it never inherits the card's skew. Position it however
      you like — the layer is exactly the open card's rect, so `absolute`
      here resolves against the image. */
   .webgl_cards_tag {
-    position: absolute; left: 24px; bottom: 24px;
+    position: absolute; right: 24px; bottom: 24px;   /* tag: bottom-right */
     display: flex; align-items: center; gap: 11px;
     padding: 9px 14px 9px 9px; background: var(--page-bg);
     border: 1px solid var(--hair); border-radius: 5px;
@@ -36,13 +42,15 @@
   }
   .webgl_cards_svg_wrap { width: 30px; height: 30px; border-radius: 3px; background: #146ef5; display: grid; place-items: center; flex: none; }
   .webgl_cards_svg_icon svg { width: 15px; height: 15px; display: block; }
-  .webgl_cards_poject { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
-  .webgl_cards_name_by { display: flex; gap: 4px; font-size: 12px; color: var(--ink-soft); }
-  a.webgl_cards_studio { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
+  /* deliberately written as DESCENDANT selectors, the way Webflow emits
+     nested styles — these must survive the tag being lifted out of the card */
+  .webgl_card_inner_wrap .webgl_cards_poject { font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
+  .webgl_card_inner_wrap .webgl_cards_name_by { display: flex; gap: 4px; font-size: 12px; color: var(--ink-soft); }
+  .webgl_card_inner_wrap a.webgl_cards_studio { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
 
-  /* authored close button — the module only drives its opacity */
+  /* authored close button, pinned to the card: top-left of the image */
   .webgl_close {
-    position: absolute; top: 28px; right: 28px; z-index: 800;
+    position: absolute; top: 16px; left: 16px; z-index: 800;
     width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid var(--hair); background: #fff; color: var(--ink);
     display: grid; place-items: center; cursor: pointer;
@@ -61,8 +69,8 @@
     </div>
   </div>
 
-  <!-- authored close button: the module uses this instead of making one -->
-  <button type="button" data-webgl-close class="webgl_close" aria-label="Close">
+  <!-- authored close button, pinned so it anchors to the open card -->
+  <button type="button" data-webgl-close data-webgl-pin class="webgl_close" aria-label="Close">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
       <path d="M2 2 L14 14 M14 2 L2 14"/>
     </svg>

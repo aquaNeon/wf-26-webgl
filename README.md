@@ -106,9 +106,21 @@ The module accepts the Webflow component tree directly — see `webflow.html`:
   only if they are absent. They can live anywhere in the section.
 
 Design the tag in Webflow, not in code: it is lifted into a layer that is
-exactly the open card's rect, so `position:absolute; left:24px; bottom:24px`
+exactly the open card's rect, so `position:absolute; right:24px; bottom:24px`
 resolves against the image as authored. The module fades a wrapper around it
-and never touches the tag's own styles.
+and never touches the tag's own styles. Add `data-webgl-pin` to anything else
+that should anchor to the open card — a close button at the card's top-left,
+for instance — instead of to the viewport.
+
+Lifted elements keep their ancestors rebuilt as empty same-class shells,
+because Webflow writes nested styles as descendant selectors: without them a
+tag moved out of the card loses everything styled through its parents, and
+the text disappears while a self-styled SVG survives.
+
+The module's CSS is injected FIRST in `<head>`, so every Webflow class wins.
+If the canvas needs to be `position:absolute; inset:0` inside a section with
+a heading above it, just set that in Webflow — otherwise the canvas is laid
+out below the heading and the row centres in the leftover space.
 
 Every card can carry its own overlay, which is what a component wants;
 textures are cached per URL, so eight cards sharing one UI cost one upload.

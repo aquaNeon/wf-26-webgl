@@ -85,13 +85,47 @@ export function init(root) {
       if (!t) { tipHolders[i] = null; return; }
       const holder = document.createElement('div');
       holder.className = 'mw-tip-hold';
-      t._mwHome = t.parentNode;
-      holder.appendChild(t);
       tipLayer.appendChild(holder);
+      lift(holder, t, cards[i]);
       tipHolders[i] = holder;
+    });
+
+    // anything marked data-webgl-pin anchors to the open card too, so a
+    // close button can sit at the card's top-left rather than the viewport's
+    scope.querySelectorAll('[data-webgl-pin]').forEach((p) => {
+      if (p.closest('.mw-tip-layer')) return;
+      // no class shells here: pinned chrome is top level, and rebuilding
+      // its ancestors would recreate the section itself inside the layer
+      p._mwHome = p.parentNode;
+      tipLayer.appendChild(p);
     });
   }
   let activeTip = null;
+
+  /* Move `node` into `holder`, rebuilding the chain of ancestors up to and
+     including `top` as empty elements with the same classes.
+
+     Webflow writes nested styles as descendant selectors, so an element
+     simply reparented out of the card loses everything styled through its
+     parents — text and links go unstyled or invisible while a self-styled
+     SVG survives. The class shells keep those selectors matching. */
+  function lift(holder, node, top) {
+    const chain = [];
+    for (let p = node.parentElement; p; p = p.parentElement) {
+      chain.unshift(p);
+      if (p === top) break;
+    }
+    node._mwHome = node.parentNode;
+    let mount = holder;
+    chain.forEach((anc) => {
+      const shell = document.createElement(anc.tagName.toLowerCase());
+      shell.className = anc.className;
+      shell.dataset.mwShell = '1';
+      mount.appendChild(shell);
+      mount = shell;
+    });
+    mount.appendChild(node);
+  }
 
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const num = (k, d) => { const v = parseFloat(root.dataset[k]); return Number.isNaN(v) ? d : v; };
@@ -819,12 +853,13 @@ export function init(root) {
         cards[i].style.opacity = '';
       });
       // put the tag blocks back where Webflow authored them
-      cardTips.forEach((t) => {
-        if (!t || !t._mwHome) return;
-        t._mwHome.appendChild(t);   // the module never styled it, so nothing to reset
-        delete t._mwHome;
-      });
-      if (tipLayer) tipLayer.remove();
+      // put every lifted element back; the module never styled them, so
+      // there is nothing to reset
+      if (tipLayer) {
+        tipLayer.querySelectorAll('[data-webgl-tag], .webgl_cards_tag, [data-webgl-pin]')
+          .forEach((t) => { if (t._mwHome) { t._mwHome.appendChild(t); delete t._mwHome; } });
+        tipLayer.remove();
+      }
       if (wf) {
         // only remove chrome the module created, never anything authored
         if (backdrop && backdrop.dataset.mwMade) backdrop.remove();
@@ -877,7 +912,22 @@ function injectCss() {
   display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:transform .3s ease}
 .mw-close:hover{transform:rotate(90deg)}
 .mw-close svg{width:15px;height:15px}`;
-  document.head.appendChild(s);
+  // FIRST in head, not last: these are defaults the module needs to work,
+  // and every one of them must lose to a Webflow class. Appending instead
+  // means the module quietly overrides the design — e.g. forcing the
+  // canvas back to position:relative when it was authored absolute.
+  document.head.prepend(s);
+
+  /* The one exception, appended so it wins: the class shells exist only to
+     keep descendant selectors matching, so they must contribute no geometry
+     of their own — otherwise the card class's own width or layout would
+     re-anchor whatever was pinned inside them. */
+  const scaffold = document.createElement('style');
+  scaffold.textContent = `[data-mw-shell]{position:absolute!important;inset:0!important;
+  width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;
+  margin:0!important;padding:0!important;border:0!important;background:none!important;
+  transform:none!important;display:block!important;overflow:visible!important;opacity:1!important}`;
+  document.head.appendChild(scaffold);
 }
 
 export function initAll(scope) {
