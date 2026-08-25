@@ -5,6 +5,8 @@ node_modules/
 dist/
 dist-site/
 .vite/
+# ...except the shipped bundle: a CDN link has to point at a committed file
+!dist/mw-slider.js
 
 # local assistant / editor state
 .claude/
