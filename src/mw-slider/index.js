@@ -44,7 +44,14 @@ export function init(root) {
     stage.appendChild(d);
     return d;
   });
-  const closeBtn = el('[data-mw="close"], [data-webgl-close]', () => {
+  /* A close button authored inside the component exists once per card, so
+     they must behave like the tags: pinned to the open card, shown only for
+     it, and never left sitting in the row. Anything outside a card is
+     ordinary global chrome. */
+  const closeAll = Array.from(scope.querySelectorAll('[data-mw="close"], [data-webgl-close]'));
+  const cardCloses = cards.map((c) => c.querySelector('[data-mw="close"], [data-webgl-close]'));
+  const globalCloses = closeAll.filter((e) => !cards.some((c) => c.contains(e)));
+  const closeBtn = globalCloses[0] || (cardCloses.some(Boolean) ? null : el('[data-mw="close"]', () => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mw-close';
@@ -53,7 +60,7 @@ export function init(root) {
     b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 2 L14 14 M14 2 L2 14"/></svg>';
     root.appendChild(b);
     return b;
-  });
+  }));
   const headEl = root.querySelector('[data-mw="head"]')
     || (root.closest('section') || root).querySelector('[data-webgl-heading]');
   const countEl = root.querySelector('[data-mw="counter"]');
@@ -72,7 +79,7 @@ export function init(root) {
   const cardTips = cards.map((c) => c.querySelector('[data-webgl-tag], .webgl_cards_tag'));
   let tipLayer = null;
   const tipHolders = [];
-  if (cardTips.some(Boolean)) {
+  if (cardTips.some(Boolean) || cardCloses.some(Boolean)) {
     /* The layer is sized to the OPEN card's rect, so a tag authored as
        `position:absolute; bottom:24px; left:24px` in Webflow lands where
        it was designed to — against the image — instead of wherever the
@@ -81,12 +88,13 @@ export function init(root) {
     tipLayer = document.createElement('div');
     tipLayer.className = 'mw-tip-layer';
     stage.appendChild(tipLayer);
-    cardTips.forEach((t, i) => {
-      if (!t) { tipHolders[i] = null; return; }
+    cards.forEach((card, i) => {
+      const bits = [cardTips[i], cardCloses[i]].filter(Boolean);
+      if (!bits.length) { tipHolders[i] = null; return; }
       const holder = document.createElement('div');
       holder.className = 'mw-tip-hold';
       tipLayer.appendChild(holder);
-      lift(holder, t, cards[i]);
+      bits.forEach((b) => lift(holder, b, card));
       tipHolders[i] = holder;
     });
 
@@ -246,6 +254,8 @@ export function init(root) {
   // the DOM media is the fallback face of a card: hidden while the GL
   // layer is drawing, shown again the moment it isn't
   function setMediaHidden(hidden) {
+    if (hidden) root.dataset.mwGl = '1';
+    else delete root.dataset.mwGl;
     cards.forEach((c) => {
       const media = c.querySelector('[data-mw="media"]');
       if (media) media.style.visibility = hidden ? 'hidden' : '';
@@ -288,6 +298,17 @@ export function init(root) {
     cardH = cards[0].offsetHeight;
     stageW = stage.clientWidth;
     stageH = stage.clientHeight;
+
+    /* Centre the cards explicitly rather than relying on the stage being a
+       centring flexbox: any Webflow display value breaks that, and the DOM
+       cards — which are the hit areas — then sit somewhere the WebGL cards
+       are not, so hovering picks a card two or three along. */
+    cards.forEach((c) => {
+      c.style.left = '50%';
+      c.style.top = '50%';
+      c.style.marginLeft = (-cardW / 2) + 'px';
+      c.style.marginTop = (-cardH / 2) + 'px';
+    });
 
     const margin = clamp(stageW * 0.07, 28, 96) + cfg.frameGap;
     openScale = Math.min((stageW - margin * 2) / cardW, (stageH - margin * 2) / cardH);
@@ -623,8 +644,15 @@ export function init(root) {
         : 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
       activeTip.style.pointerEvents = tipT > 0.6 ? 'auto' : 'none';
     }
-    closeBtn.style.opacity = closeT.toFixed(3);
-    closeBtn.style.pointerEvents = closeT > 0.5 ? 'auto' : 'none';
+    // per-card closes ride their holder's fade; only global ones need driving
+    globalCloses.forEach((c) => {
+      c.style.opacity = closeT.toFixed(3);
+      c.style.pointerEvents = closeT > 0.5 ? 'auto' : 'none';
+    });
+    if (closeBtn && !globalCloses.includes(closeBtn)) {
+      closeBtn.style.opacity = closeT.toFixed(3);
+      closeBtn.style.pointerEvents = closeT > 0.5 ? 'auto' : 'none';
+    }
 
     const idx = ((Math.round(current) % n) + n) % n;
     if (indexEl) indexEl.textContent = String(idx + 1).padStart(2, '0');
@@ -680,7 +708,8 @@ export function init(root) {
     }
 
     root.setAttribute('data-mw-open', '');
-    closeBtn.focus({ preventScroll: true });
+    const focusTarget = cardCloses[i] || closeBtn;
+    if (focusTarget) focusTarget.focus({ preventScroll: true });
     wake();
   }
 
@@ -793,7 +822,11 @@ export function init(root) {
   stage.addEventListener('pointermove', onStageMove);
   stage.addEventListener('pointerleave', onStageLeave);
   backdrop.addEventListener('click', closeCard);
-  closeBtn.addEventListener('click', closeCard);
+  // stopPropagation: a close authored inside the card would otherwise bubble
+  // to the card's own click handler and immediately reopen it
+  const onCloseClick = (e) => { e.preventDefault(); e.stopPropagation(); closeCard(); };
+  closeAll.forEach((c) => c.addEventListener('click', onCloseClick));
+  if (closeBtn && !closeAll.includes(closeBtn)) closeBtn.addEventListener('click', onCloseClick);
   addEventListener('keydown', onKey);
   addEventListener('resize', onResize);
   document.addEventListener('visibilitychange', onVis);
@@ -836,7 +869,8 @@ export function init(root) {
       stage.removeEventListener('pointermove', onStageMove);
       stage.removeEventListener('pointerleave', onStageLeave);
       backdrop.removeEventListener('click', closeCard);
-      closeBtn.removeEventListener('click', closeCard);
+      closeAll.forEach((c) => c.removeEventListener('click', onCloseClick));
+      if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       removeEventListener('keydown', onKey);
       removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVis);
@@ -856,7 +890,7 @@ export function init(root) {
       // put every lifted element back; the module never styled them, so
       // there is nothing to reset
       if (tipLayer) {
-        tipLayer.querySelectorAll('[data-webgl-tag], .webgl_cards_tag, [data-webgl-pin]')
+        tipLayer.querySelectorAll('[data-webgl-tag], .webgl_cards_tag, [data-webgl-pin], [data-webgl-close], [data-mw="close"]')
           .forEach((t) => { if (t._mwHome) { t._mwHome.appendChild(t); delete t._mwHome; } });
         tipLayer.remove();
       }
@@ -900,8 +934,10 @@ function injectCss() {
    the no-WebGL fallback sets visibility:visible inline, which wins */
 [data-webgl-canvas] [data-webgl-item] img{width:100%;height:100%;object-fit:cover;display:block;visibility:hidden}
 [data-webgl-canvas] [data-webgl-item] [data-webgl-image]{position:absolute;inset:0}
+/* transparent by default: a guessed colour is a white sheet on a dark site.
+   Set --mw-backdrop to dim the row behind an open card. */
 [data-webgl-canvas] .mw-backdrop{position:absolute;inset:0;z-index:500;opacity:0;pointer-events:none;
-  background:var(--mw-backdrop, #f7f6f3)}
+  background:var(--mw-backdrop, transparent)}
 [data-mw-open] .mw-backdrop{pointer-events:auto}
 /* sized to the open card, so a tag authored absolute against the image
    lands exactly where it was designed */
@@ -923,7 +959,15 @@ function injectCss() {
      of their own — otherwise the card class's own width or layout would
      re-anchor whatever was pinned inside them. */
   const scaffold = document.createElement('style');
-  scaffold.textContent = `[data-mw-shell]{position:absolute!important;inset:0!important;
+  scaffold.textContent = `
+/* mechanics, not design: cards must be absolutely placed for the module to
+   position them, and while WebGL is drawing them the DOM copy must paint
+   nothing — otherwise a background on the card or its wrapper shows through
+   as a plain rectangle behind the flying card */
+[data-webgl-canvas] [data-webgl-item]{position:absolute!important}
+[data-mw-gl] [data-webgl-item]{background:none!important;border:0!important;box-shadow:none!important}
+[data-mw-gl] [data-webgl-item] > *{visibility:hidden!important}
+[data-mw-shell]{position:absolute!important;inset:0!important;
   width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;
   margin:0!important;padding:0!important;border:0!important;background:none!important;
   transform:none!important;display:block!important;overflow:visible!important;opacity:1!important}`;

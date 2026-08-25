@@ -105,6 +105,11 @@ The module accepts the Webflow component tree directly — see `webflow.html`:
   own backdrop — the module only drives their opacity, and creates plain ones
   only if they are absent. They can live anywhere in the section.
 
+A close button authored *inside* the component exists once per card, which is
+handled: each is lifted onto the open card, shown only for that card, and
+hidden in the row. The backdrop is transparent unless you set `--mw-backdrop`
+— a guessed colour is a white sheet on a dark site.
+
 Design the tag in Webflow, not in code: it is lifted into a layer that is
 exactly the open card's rect, so `position:absolute; right:24px; bottom:24px`
 resolves against the image as authored. The module fades a wrapper around it
