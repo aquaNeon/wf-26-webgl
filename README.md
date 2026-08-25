@@ -9,9 +9,28 @@ counter and backdrop are DOM and never deform.
 
 ```
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # dist/ bundle for Webflow embed
+npm run dev          # http://localhost:5173
+npm run build        # dist/mw-slider.js — one self-contained file for Webflow
+npm run build:site   # dist-site/ — the demo pages
 ```
+
+Pages: `index.html` is the reference markup, `webflow.html` is the Webflow
+component markup, `test-embed.html` loads the built bundle as a plain script
+(what actually ships).
+
+## Webflow embed
+
+`dist/mw-slider.js` is ~84 kB (27 kB gzipped) with OGL bundled in, so it is
+too big for a custom-code field and has to be hosted. Add before `</body>`:
+
+```html
+<script src="https://your-host/mw-slider.js"></script>
+```
+
+It boots itself on every `[data-webgl-canvas]` (and `[data-mw="root"]`) on the
+page and exposes `window.MwSlider = { instances, init, initAll }` for page
+transitions. Adding `?mw-tweak` to any URL — including the live site — opens
+the tuning panel, so the physics can be tuned in place.
 
 ## Architecture
 

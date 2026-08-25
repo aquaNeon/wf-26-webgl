@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slider — built embed</title>
+<style>
+  /* Only the styles Webflow itself would own. The module injects its own
+     layout CSS, so this file proves the bundle needs nothing else. */
+  :root { --page-bg:#f7f6f3; --ink:#101010; --ink-soft:#6b6a66; --hair:#dedcd6; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin:0; background:var(--page-bg); color:var(--ink);
+    font-family:"Inter","Helvetica Neue",Arial,sans-serif; -webkit-font-smoothing:antialiased; overflow:hidden; }
+  .webgl_slider_wrap { position: relative; height: 100svh; }
+  .webgl_slider_contain { position:absolute; top:clamp(24px,6svh,72px); left:0; right:0; z-index:20; pointer-events:none; text-align:center; }
+  .heading-component h1 { margin:0; font-size:clamp(32px,7vw,96px); letter-spacing:-.045em; font-weight:700; }
+  .webgl_canvas { --mw-card-w: clamp(240px, 26cqw, 620px); --mw-backdrop: var(--page-bg); height:100svh; }
+  .webgl_cards_tag { display:flex; align-items:center; gap:11px; padding:9px 14px 9px 9px; background:var(--page-bg);
+    border:1px solid var(--hair); border-radius:5px; box-shadow:0 6px 22px rgba(16,16,16,.10); }
+  .webgl_cards_svg_wrap { width:30px; height:30px; border-radius:3px; background:#146ef5; display:grid; place-items:center; flex:none; }
+  .webgl_cards_svg_icon svg { width:15px; height:15px; display:block; }
+  .webgl_cards_poject { font-size:13px; font-weight:600; letter-spacing:-.01em; }
+  .webgl_cards_name_by { display:flex; gap:4px; font-size:12px; color:var(--ink-soft); }
+  a.webgl_cards_studio { color:var(--ink-soft); text-decoration:underline; text-underline-offset:2px; }
+</style>
+</head>
+<body>
+
+<section class="webgl_slider_wrap">
+  <div class="webgl_slider_contain">
+    <div class="webgl_slider_heading_center" data-webgl-heading>
+      <div class="heading-component"><h1>#MadeinWebflow</h1></div>
+    </div>
+  </div>
+  <div data-webgl-canvas class="webgl_canvas"></div>
+</section>
+
+<script>
+(() => {
+  const ICON = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15.6517 12.745C14.8468 12.745 14.1462 13.0431 13.5499 13.6393C12.9835 14.2058 12.7002 14.8915 12.7002 15.6964V22.762C12.7002 22.9112 12.6406 23.0304 12.5214 23.1198C12.4319 23.2092 12.3276 23.254 12.2083 23.254H10.9115C10.7624 23.254 10.6432 23.2092 10.5537 23.1198C10.4643 23.0304 10.4196 22.9112 10.4196 22.762V15.6964C10.4196 14.8915 10.1214 14.2058 9.52518 13.6393C8.95874 13.0431 8.27304 12.745 7.4681 12.745H0.49191C0.342846 12.745 0.223596 12.7002 0.134157 12.6108C0.0447192 12.5214 0 12.4021 0 12.253V11.0456C0 10.9264 0.0447192 10.822 0.134157 10.7326C0.223596 10.6133 0.342846 10.5537 0.49191 10.5537H7.4681C8.27304 10.5537 8.95874 10.2705 9.52518 9.70406C10.1214 9.13762 10.4196 8.43702 10.4196 7.60226V0.49191C10.4196 0.342846 10.4643 0.223596 10.5537 0.134158C10.6432 0.0447194 10.7624 0 10.9115 0H12.2083C12.3574 0 12.4766 0.0447194 12.5661 0.134158C12.6555 0.223596 12.7002 0.342846 12.7002 0.49191V7.60226C12.7002 8.4072 12.9835 9.1078 13.5499 9.70406C14.1462 10.2705 14.8468 10.5537 15.6517 10.5537H22.5832C22.7322 10.5537 22.8514 10.6133 22.941 10.7326C23.0602 10.822 23.1198 10.9264 23.1198 11.0456V12.253C23.1198 12.4021 23.0602 12.5214 22.941 12.6108C22.8514 12.7002 22.7322 12.745 22.5832 12.745H15.6517Z" fill="white"/></svg>';
+  const ART = '/slide-trevor-noah.png', UI = '/ui-chrome.png';
+  const NAMES = [['Trevor Noah','Off-brand'],['Clay','N4'],['Radiant','N4'],['Claude','Off-brand'],
+                 ['Greenhouse','N4'],['Fauna Robotics','N4'],['Aggregate','Made You Look'],['Northbound','N4']];
+  document.querySelector('[data-webgl-canvas]').innerHTML = NAMES.map(([p, s]) => `
+    <div data-webgl-item class="webgl_cards_wrap"><div class="webgl_card_inner_wrap">
+      <img data-webgl-image alt="" src="${ART}" class="webgl_card_inner_img">
+      <img data-webgl-overlay alt="" src="${UI}" class="webgl_card_ui_overlay">
+      <div class="webgl_cards_tag">
+        <div class="webgl_cards_svg_wrap"><div class="webgl_cards_svg_icon">${ICON}</div></div>
+        <div class="webgl_cards_name_wrap">
+          <div class="webgl_cards_poject">${p}</div>
+          <div class="webgl_cards_name_by"><div class="webgl_cards_studio">by</div>
+          <a href="#" class="webgl_cards_studio">${s}</a></div>
+        </div>
+      </div>
+    </div></div>`).join('');
+})();
+</script>
+
+<!-- exactly what goes into Webflow: one plain script tag, no module -->
+<script src="/dist/mw-slider.js"></script>
+
+</body>
+</html>

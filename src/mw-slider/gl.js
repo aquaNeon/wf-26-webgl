@@ -408,8 +408,8 @@ export class GlLayer {
       const mesh = new Mesh(this.gl, { geometry, program });
       mesh.setParent(this.scene);
 
-      const artSrc = img ? (img.currentSrc || img.src) : '';
-      const uiSrc = overlay ? (overlay.currentSrc || overlay.src) : '';
+      const artSrc = bestSrc(img);
+      const uiSrc = bestSrc(overlay);
       if (artSrc) {
         this.loadTexture(artSrc, (t) => {
           program.uniforms.uMap.value = t;
@@ -473,6 +473,28 @@ export class GlLayer {
     this.items = [];
     this.ok = false;
   }
+}
+
+/* Always the full-resolution source. Webflow emits a srcset and the card
+   is small, so currentSrc can resolve to a thumbnail — which would then be
+   the texture the card is drawn from, blurry the moment it opens.
+   data-webgl-src overrides everything. */
+function bestSrc(img) {
+  if (!img) return '';
+  if (img.dataset && img.dataset.webglSrc) return img.dataset.webglSrc;
+  const set = img.getAttribute('srcset');
+  if (set) {
+    let best = '', bestW = -1;
+    set.split(',').forEach((part) => {
+      const bits = part.trim().split(/\s+/);
+      if (!bits[0]) return;
+      const d = bits[1] || '';
+      const w = d.endsWith('w') ? parseFloat(d) : d.endsWith('x') ? parseFloat(d) * 1000 : 0;
+      if (w >= bestW) { bestW = w; best = bits[0]; }
+    });
+    if (best) return best;
+  }
+  return img.currentSrc || img.src || '';
 }
 
 export function cssColor(str) {

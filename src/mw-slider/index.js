@@ -204,8 +204,10 @@ export function init(root) {
       if (media) media.style.visibility = hidden ? 'hidden' : '';
       // Webflow cards have no media wrapper; the images themselves are
       // the source for the textures and must not also be painted
+      // 'visible', not '': the injected CSS hides them by default, so the
+      // fallback has to say so explicitly
       c.querySelectorAll('[data-webgl-image], [data-webgl-overlay]')
-        .forEach((im) => { im.style.visibility = hidden ? 'hidden' : ''; });
+        .forEach((im) => { im.style.visibility = hidden ? 'hidden' : 'visible'; });
     });
   }
 
@@ -841,7 +843,10 @@ function injectCss() {
   width:${card};height:calc(${card} * 851 / 1440);transform-origin:50% 50%;cursor:pointer;outline:none}
 [data-webgl-canvas] [data-webgl-item]:focus-visible{outline:2px solid currentColor;outline-offset:4px}
 [data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
-[data-webgl-canvas] [data-webgl-item] img{width:100%;height:100%;object-fit:cover;display:block}
+/* hidden up front so the raw stacked images never flash before init;
+   the no-WebGL fallback sets visibility:visible inline, which wins */
+[data-webgl-canvas] [data-webgl-item] img{width:100%;height:100%;object-fit:cover;display:block;visibility:hidden}
+[data-webgl-canvas] [data-webgl-item] [data-webgl-image]{position:absolute;inset:0}
 [data-webgl-canvas] .mw-backdrop{position:absolute;inset:0;z-index:500;opacity:0;pointer-events:none;
   background:var(--mw-backdrop, #f7f6f3)}
 [data-mw-open] .mw-backdrop{pointer-events:auto}
