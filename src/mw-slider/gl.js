@@ -168,7 +168,13 @@ void main() {
   // overflow is hidden by the panels themselves — no masking needed.
   if (uHasChrome > 0.5 && uAssembly > 0.001) {
     vec4 ch = texture2D(uChrome, vUv);
-    col = mix(col, ch.rgb, ch.a * uAssembly);
+    // Where the slide has pulled away, the chrome is the only thing that can
+    // be there, so it is already at full strength — otherwise the bare plate
+    // shows through the half-faded UI as a pale panel beside the artwork.
+    // Inside the slide it still cross-fades, which is the look we want.
+    vec2 dOut = abs(vUv - uArtRect.xy) - uArtRect.zw * 0.5;
+    float vacated = smoothstep(0.0, 0.0015, max(dOut.x, dOut.y));
+    col = mix(col, ch.rgb, ch.a * max(uAssembly, vacated));
   }
 
   col *= vShade;
