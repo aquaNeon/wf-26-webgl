@@ -154,8 +154,9 @@ export function init(root) {
     node.style.top = spot[1];
     node.style.right = 'auto';
     node.style.bottom = 'auto';
-    node.style.margin = '0';
     node.style.transform = 'translate(-50%, -50%)';
+    // margin is left alone on purpose: it is how the corner gets nudged,
+    // and it is the one offset a visual editor exposes cleanly
   }
 
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -248,7 +249,7 @@ export function init(root) {
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
-  let scrollOffset = 0;
+  let scrollShift = 0;   // px the row is carried by the page scroll
   let kbd = false;   // was the last interaction keyboard-driven?
   let running = false, raf = 0, lastT = 0, accum = 0;
   let destroyed = false;
@@ -450,10 +451,14 @@ export function init(root) {
     }
 
     /* -- row inertia + settle (prototype, dt-corrected) */
-    // the section's travel through the viewport is frozen while a card is
-    // open, so the row cannot slide out from under it
-    if (cfg.scrollSpan && activeIndex < 0) {
-      scrollOffset = (scrollProgress() - 0.5) * cfg.scrollSpan;
+    /* The page scroll CARRIES the row, it does not drive it. This is a
+       visual offset only — never part of `current` — so scrolling cannot
+       scrub through the cards, cannot fight a drag, and cannot change which
+       card is which. Dragging stays the only way to move through them. */
+    let wantShift = 0;
+    if (cfg.scrollSpan) {
+      wantShift = (scrollProgress() - 0.5) * cfg.scrollSpan * cardW * cfg.spacing;
+      scrollShift += (wantShift - scrollShift) * kOf(0.18);
     }
 
     if (!dragging && activeIndex < 0) {
@@ -462,13 +467,11 @@ export function init(root) {
         velocity *= Math.pow(cfg.friction, f60);
       } else {
         velocity = 0;
-        // scroll-driven rows are free: snapping to a slot would fight the
-        // position the page scroll is asking for
-        if (!cfg.scrollSpan) target += (Math.round(target) - target) * (reduced ? 1 : kOf(0.16));
+        target += (Math.round(target) - target) * (reduced ? 1 : kOf(0.16));
       }
     }
     if (!cfg.loop) target = clamp(target, 0, n - 1);
-    const goal = target + scrollOffset;
+    const goal = target;
     if (!(flightActive && rowFrom !== null)) current += (goal - current) * kOf(cfg.lerp);
 
     const frameVel = (current - prevCurrent) / f60;
@@ -548,7 +551,8 @@ export function init(root) {
       let x, y, z, ry, rz, sk, s;
 
       if (active) {
-        x = rel * spacingPx * (1 - o);       // raw o: sails slightly past centre
+        // the carry unwinds as the card opens, so it still lands dead centre
+        x = rel * spacingPx * (1 - o) + scrollShift * (1 - clamp01(o));
         y = 0;
         // starts on the row's own depth ramp (so there is no pop out of
         // the stack), then: open lifts toward the viewer FAST and early
@@ -570,7 +574,8 @@ export function init(root) {
           ? clamp01(1 - Math.abs(pointerX - cx) / (cfg.hoverRadius * cardW)) : 0;
         card._lift += (f * f * cfg.hoverLift - card._lift) * kOf(0.18);
 
-        x = rel * spacingPx + (activeIndex >= 0 ? Math.sign(rel || 1) * spacingPx * cfg.push * oi : 0);
+        x = rel * spacingPx + scrollShift * (1 - oc)
+          + (activeIndex >= 0 ? Math.sign(rel || 1) * spacingPx * cfg.push * oi : 0);
         y = Math.sin(phase) * w * cfg.waveAmp - card._lift;
         z = -rel * cfg.zGap;
         ry = -w * cfg.waveTurn;
@@ -709,7 +714,8 @@ export function init(root) {
 
     /* -- park when everything is genuinely still */
     const rowAwake = dragging || Math.abs(velocity) > 0.0015 ||
-      Math.abs(goal - current) > 0.0008 || Math.abs(vSmooth) > 0.0004;
+      Math.abs(goal - current) > 0.0008 || Math.abs(vSmooth) > 0.0004 ||
+      Math.abs(wantShift - scrollShift) > 0.05;
     const chromeAwake = Math.abs(landedT - landedWant) > 0.004 ||
       Math.abs(tipT - tipWant) > 0.004 || Math.abs(closeT - closeWant) > 0.004;
     if (rowAwake || flightActive || simAwake || opAwake || chromeAwake || asmAwake) {
@@ -954,7 +960,7 @@ export function init(root) {
           .forEach((t) => {
             if (!t._mwHome) return;
             if (PIN_SPOTS[(t.dataset.webglPin || '').trim()]) {
-              ['position', 'left', 'top', 'right', 'bottom', 'margin', 'transform']
+              ['position', 'left', 'top', 'right', 'bottom', 'transform']
                 .forEach((k) => t.style.removeProperty(k));
             }
             t._mwHome.appendChild(t);

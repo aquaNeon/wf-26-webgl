@@ -53,7 +53,9 @@
   /* Authored inside the component, so there is one per card. The module
      lifts it onto the open card and fades it with the tag. */
   .webgl_close {
-    position: absolute; top: 16px; left: 16px; z-index: 800;
+    /* pinned to the card's top-left corner; margin nudges it off that corner */
+    margin: 18px 0 0 -18px;
+    z-index: 800;
     width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid var(--hair); background: #fff; color: var(--ink);
     display: grid; place-items: center; cursor: pointer;

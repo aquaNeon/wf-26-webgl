@@ -119,7 +119,9 @@ for instance — instead of to the viewport.
 
 `data-webgl-pin` also takes a corner: `top-left`, `top-right`, `bottom-left`,
 `bottom-right` or `center` centres the element *on* that corner of the card,
-which otherwise needs a -50%/-50% transform stacked on the offsets. A bare
+which otherwise needs a -50%/-50% transform stacked on the offsets. Nudge it
+off the corner with plain margins — `margin: 18px 0 0 -18px` sits it down and
+out — since margin is the one offset a visual editor exposes cleanly. A bare
 `data-webgl-pin` leaves the positioning entirely to your CSS.
 
 Lifted elements keep their ancestors rebuilt as empty same-class shells,
@@ -148,13 +150,16 @@ comes from `--mw-card-w` and `--mw-stage-h` so Webflow classes can override it.
 
 Everything on `[data-mw="root"]` (all optional, defaults in `index.js`):
 
-Scroll: `data-scroll-span` — cards of travel across one full pass of the
-section through the viewport (0, the default, is off). Nothing is pinned and
-nothing is hijacked: the page scrolls past normally, the row simply moves as
-the section enters and leaves, and it sits at its base position when the
-section is centred. With it on, the wheel belongs to the page and the row is
-moved by dragging; slot snapping is off, since it would fight the position
-the scroll is asking for.
+Scroll: `data-scroll-span` — how far the row is CARRIED, in cards, across one
+full pass of the section through the viewport (0, the default, is off).
+
+The page scroll carries the row; it does not drive it. The offset is visual
+only and never becomes part of the carousel position, so scrolling cannot
+scrub through the cards, cannot fight a drag and cannot change which card is
+which — the row is simply centred when the section is centred, and offset
+either side of that. Dragging remains the only way to move through the cards,
+and it still settles onto a slot. The wheel belongs to the page, so the
+section always scrolls past normally.
 
 Row: `data-spacing` `data-skew-y` `data-perspective` `data-push`
 `data-chase` `data-lag` `data-friction` `data-lerp` `data-loop`
