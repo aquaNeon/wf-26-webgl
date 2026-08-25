@@ -34,17 +34,21 @@ export function init(root) {
   const wf = !root.querySelector('[data-mw="stage"]');
   if (wf) injectCss();
 
-  const el = (sel, make) => root.querySelector(sel) || (make ? make() : null);
-  const backdrop = el('[data-mw="backdrop"]', () => {
+  // chrome can be authored anywhere in the section, not just inside the canvas
+  const scope = root.closest('section') || root;
+  const el = (sel, make) => scope.querySelector(sel) || (make ? make() : null);
+  const backdrop = el('[data-mw="backdrop"], [data-webgl-backdrop]', () => {
     const d = document.createElement('div');
     d.className = 'mw-backdrop';
+    d.dataset.mwMade = '1';
     stage.appendChild(d);
     return d;
   });
-  const closeBtn = el('[data-mw="close"]', () => {
+  const closeBtn = el('[data-mw="close"], [data-webgl-close]', () => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mw-close';
+    b.dataset.mwMade = '1';
     b.setAttribute('aria-label', 'Close');
     b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 2 L14 14 M14 2 L2 14"/></svg>';
     root.appendChild(b);
@@ -67,15 +71,24 @@ export function init(root) {
   const tipBy = root.querySelector('[data-mw="tip-by"]');
   const cardTips = cards.map((c) => c.querySelector('[data-webgl-tag], .webgl_cards_tag'));
   let tipLayer = null;
+  const tipHolders = [];
   if (cardTips.some(Boolean)) {
+    /* The layer is sized to the OPEN card's rect, so a tag authored as
+       `position:absolute; bottom:24px; left:24px` in Webflow lands where
+       it was designed to — against the image — instead of wherever the
+       module decides. Each tag gets its own holder inside it, which is
+       what the module fades; the tag's own styling is left alone. */
     tipLayer = document.createElement('div');
     tipLayer.className = 'mw-tip-layer';
     stage.appendChild(tipLayer);
-    cardTips.forEach((t) => {
-      if (!t) return;
+    cardTips.forEach((t, i) => {
+      if (!t) { tipHolders[i] = null; return; }
+      const holder = document.createElement('div');
+      holder.className = 'mw-tip-hold';
       t._mwHome = t.parentNode;
-      t.classList.add('mw-tip');
-      tipLayer.appendChild(t);
+      holder.appendChild(t);
+      tipLayer.appendChild(holder);
+      tipHolders[i] = holder;
     });
   }
   let activeTip = null;
@@ -262,16 +275,18 @@ export function init(root) {
   }
   let builtKey = '';
 
-  function allTips() {
-    return tipLayer ? cardTips.filter(Boolean) : (globalTip ? [globalTip] : []);
-  }
-
   function layoutChrome() {
     const w = cardW * openScale, h = cardH * openScale;
-    allTips().forEach((t) => {
-      t.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
-      t.style.top = 'calc(50% + ' + (h / 2 - 14) + 'px)';
-    });
+    if (tipLayer) {
+      // exactly the landed card: the tags position against this
+      tipLayer.style.width = w + 'px';
+      tipLayer.style.height = h + 'px';
+      tipLayer.style.marginLeft = -(w / 2) + 'px';
+      tipLayer.style.marginTop = -(h / 2) + 'px';
+    } else if (globalTip) {
+      globalTip.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
+      globalTip.style.top = 'calc(50% + ' + (h / 2 - 14) + 'px)';
+    }
   }
 
   /* where the slide sits inside the card at assembly `a`, in card uv
@@ -567,7 +582,11 @@ export function init(root) {
     if (countEl) countEl.style.opacity = (1 - oc).toFixed(3);
     if (activeTip) {
       activeTip.style.opacity = tipT.toFixed(3);
-      activeTip.style.transform = 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
+      // the entrance rides the holder, never the authored tag, so its own
+      // transform / position survive untouched
+      activeTip.style.transform = tipLayer
+        ? 'translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)'
+        : 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
       activeTip.style.pointerEvents = tipT > 0.6 ? 'auto' : 'none';
     }
     closeBtn.style.opacity = closeT.toFixed(3);
@@ -614,7 +633,7 @@ export function init(root) {
 
     // a Webflow card brings its own tag block; the reference markup has
     // one shared tip that gets filled from the card's data attributes
-    activeTip = cardTips[i] || globalTip;
+    activeTip = tipHolders[i] || globalTip;
     if (activeTip === globalTip && globalTip) {
       const d = cards[i].dataset;
       if (tipSwatch) tipSwatch.style.background = getComputedStyle(cards[i]).getPropertyValue('--mw-color');
@@ -802,15 +821,14 @@ export function init(root) {
       // put the tag blocks back where Webflow authored them
       cardTips.forEach((t) => {
         if (!t || !t._mwHome) return;
-        t.classList.remove('mw-tip');
-        t.style.cssText = '';
-        t._mwHome.appendChild(t);
+        t._mwHome.appendChild(t);   // the module never styled it, so nothing to reset
         delete t._mwHome;
       });
       if (tipLayer) tipLayer.remove();
       if (wf) {
-        if (backdrop.classList.contains('mw-backdrop')) backdrop.remove();
-        if (closeBtn.classList.contains('mw-close')) closeBtn.remove();
+        // only remove chrome the module created, never anything authored
+        if (backdrop && backdrop.dataset.mwMade) backdrop.remove();
+        if (closeBtn && closeBtn.dataset.mwMade) closeBtn.remove();
         root.removeAttribute('data-mw-dragging');
       }
       if (gl) gl.dispose();
@@ -850,8 +868,10 @@ function injectCss() {
 [data-webgl-canvas] .mw-backdrop{position:absolute;inset:0;z-index:500;opacity:0;pointer-events:none;
   background:var(--mw-backdrop, #f7f6f3)}
 [data-mw-open] .mw-backdrop{pointer-events:auto}
-[data-webgl-canvas] .mw-tip-layer{position:absolute;inset:0;z-index:640;pointer-events:none}
-[data-webgl-canvas] .mw-tip{position:absolute;left:50%;top:50%;opacity:0;pointer-events:none;white-space:nowrap}
+/* sized to the open card, so a tag authored absolute against the image
+   lands exactly where it was designed */
+[data-webgl-canvas] .mw-tip-layer{position:absolute;left:50%;top:50%;z-index:640;pointer-events:none}
+[data-webgl-canvas] .mw-tip-hold{position:absolute;inset:0;opacity:0;pointer-events:none}
 .mw-close{position:absolute;top:clamp(16px,3svh,34px);right:clamp(16px,3cqw,34px);z-index:800;
   width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,.15);background:#fff;color:#101010;
   display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:transform .3s ease}

@@ -23,9 +23,12 @@
 
   .webgl_canvas { --mw-card-w: clamp(240px, 26cqw, 620px); --mw-backdrop: var(--page-bg); height: 100svh; }
 
-  /* the tag block: authored in Webflow, lifted into a screen-space layer
-     by the module so it never inherits the card's skew */
+  /* The tag block: authored in Webflow, lifted into a screen-space layer
+     by the module so it never inherits the card's skew. Position it however
+     you like — the layer is exactly the open card's rect, so `absolute`
+     here resolves against the image. */
   .webgl_cards_tag {
+    position: absolute; left: 24px; bottom: 24px;
     display: flex; align-items: center; gap: 11px;
     padding: 9px 14px 9px 9px; background: var(--page-bg);
     border: 1px solid var(--hair); border-radius: 5px;
@@ -36,6 +39,17 @@
   .webgl_cards_poject { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
   .webgl_cards_name_by { display: flex; gap: 4px; font-size: 12px; color: var(--ink-soft); }
   a.webgl_cards_studio { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
+
+  /* authored close button — the module only drives its opacity */
+  .webgl_close {
+    position: absolute; top: 28px; right: 28px; z-index: 800;
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid var(--hair); background: #fff; color: var(--ink);
+    display: grid; place-items: center; cursor: pointer;
+    opacity: 0; pointer-events: none; transition: transform .3s ease;
+  }
+  .webgl_close:hover { transform: rotate(90deg); }
+  .webgl_close svg { width: 16px; height: 16px; }
 </style>
 </head>
 <body>
@@ -46,6 +60,13 @@
       <div data-wf--heading--alignment="left-align" class="heading-component"><h1>#MadeinWebflow</h1></div>
     </div>
   </div>
+
+  <!-- authored close button: the module uses this instead of making one -->
+  <button type="button" data-webgl-close class="webgl_close" aria-label="Close">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+      <path d="M2 2 L14 14 M14 2 L2 14"/>
+    </svg>
+  </button>
 
   <div data-webgl-canvas class="webgl_canvas"
        data-fit="cover"

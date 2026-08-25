@@ -101,6 +101,14 @@ The module accepts the Webflow component tree directly — see `webflow.html`:
 - `data-webgl-overlay` on the **UI chrome** image (transparent canvas hole)
 - `data-webgl-tag` (or `.webgl_cards_tag`) on the card's tag block
 - `data-webgl-heading` on anything that should fade out while a card is open
+- `data-webgl-close` on your own close button, `data-webgl-backdrop` on your
+  own backdrop — the module only drives their opacity, and creates plain ones
+  only if they are absent. They can live anywhere in the section.
+
+Design the tag in Webflow, not in code: it is lifted into a layer that is
+exactly the open card's rect, so `position:absolute; left:24px; bottom:24px`
+resolves against the image as authored. The module fades a wrapper around it
+and never touches the tag's own styles.
 
 Every card can carry its own overlay, which is what a component wants;
 textures are cached per URL, so eight cards sharing one UI cost one upload.
