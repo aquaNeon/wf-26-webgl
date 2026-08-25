@@ -51,6 +51,15 @@ slide (1.692) and the canvas hole (1.502) resolves as a strip of canvas under
 the page (`fit: width`, `anchor: top` — how a real Designer viewport reads) or
 as a crop (`fit: cover`).
 
+**Slide export sizes.** A slide only fills the canvas edge to edge if its
+aspect matches the *hole* (1158 x 771, 3:2), not the chrome's outer frame.
+Export at 3:2, or taller than 3:2 so the page runs past the fold and gets
+cropped by the canvas — which is what a real Designer window looks like. At
+the current 1440 x 851 the page is ~11% short, and the strip below it is
+filled with the plate: by default the median colour of the artwork's own
+bottom row, so it reads as the page continuing. Override per card with
+`--mw-plate`, or globally with `data-plate`.
+
 Two details make it read as one motion rather than a second step: it starts at
 `asmGate` while the card is still folding, so the material covers the swap; and
 the chrome is *revealed* in the band the slide vacates rather than cross-faded

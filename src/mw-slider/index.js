@@ -100,7 +100,8 @@ export function init(root) {
     holeH: num('holeH', 0.905993),
     fit: root.dataset.fit || 'width',        // width | contain | cover
     anchor: root.dataset.anchor || 'top',    // top | center
-    plate: root.dataset.plate || '#ffffff',  // canvas behind the slide
+    plate: root.dataset.plate || '',   // canvas behind the slide; empty =
+                                       // each card uses its own --mw-color
     asmGate: num('asmGate', 0.62),     // openness at which assembly starts
     asmRate: num('asmRate', 0.10),     // how quickly it resolves
     asmWipe: num('asmWipe', 1),        // 1 = reveal the UI, 0 = cross-fade it
@@ -119,6 +120,7 @@ export function init(root) {
   let o = 0, ov = 0, oTarget = 0;                    // the flight spring
   let asm = 0;                                       // UI assembly, 0..1
   const artRect = [0.5, 0.5, 1, 1];
+  const wipeRect = [0.5, 0.5, 1, 1];
   let rowFrom = null, rowTo = 0;
   let landed = false, frameT = 0, tipT = 0, closeT = 0;
   let pointerX = -1e5, pointerOn = false;
@@ -195,7 +197,7 @@ export function init(root) {
       const key = cardW + 'x' + cardH + 'x' + cfg.nodes;
       if (key !== builtKey) {
         builtKey = key;
-        gl.plate = cssColor(cfg.plate);
+        gl.plateOverride = cfg.plate ? cssColor(cfg.plate) : null;
         gl.buildCards(cards, cfg.nodes, cardW, cardH, cfg.radius);
       }
       gl.loadChrome(cfg.uiSrc, wake);
@@ -233,6 +235,13 @@ export function init(root) {
     artRect[1] = lerp(0.5, cy, a);
     artRect[2] = lerp(1, s, a);
     artRect[3] = lerp(1, s, a);
+
+    // the chrome is revealed by the hole closing in from the card edges,
+    // which is independent of how the slide is fitted inside it
+    wipeRect[0] = lerp(0.5, hx + hw / 2, a);
+    wipeRect[1] = lerp(0.5, holeTop - hh / 2, a);
+    wipeRect[2] = lerp(1, hw, a);
+    wipeRect[3] = lerp(1, hh, a);
     return artRect;
   }
 
@@ -489,6 +498,8 @@ export function init(root) {
         const r = artRectAt(a);
         const ar = u.uArtRect.value;
         ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
+        const wr = u.uWipeRect.value;
+        wr[0] = wipeRect[0]; wr[1] = wipeRect[1]; wr[2] = wipeRect[2]; wr[3] = wipeRect[3];
 
         // stacking = sort by the card's intended depth, active card
         // included. in the row this reproduces left-over-right exactly
@@ -694,7 +705,7 @@ export function init(root) {
         cards.forEach((c, ci) => { c._chain.resize(cfg.nodes); c._chain.phase = ci * 2.399; c._parked = true; });
         if (useGl) measure();
       }
-      if (key === 'plate' && useGl) gl.setPlate(cssColor(value));
+      if (key === 'plate' && useGl) gl.setPlate(value ? cssColor(value) : null);
       if (key === 'uiSrc' && useGl) { gl.chromeUrl = null; gl.loadChrome(value, wake); }
       if (key === 'checker' && useGl) {
         gl.items.forEach((it) => { it.program.uniforms.uChecker.value = value ? 1 : 0; });

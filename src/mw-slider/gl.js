@@ -124,6 +124,7 @@ uniform float uRadius;
 // the chrome's canvas hole. one uniform scale, so the slide never
 // distorts — the aspect mismatch resolves as crop or canvas gap.
 uniform vec4 uArtRect;       // cx, cy, sx, sy in card uv
+uniform vec4 uWipeRect;      // the closing canvas hole, same layout
 uniform vec3 uPlate;         // canvas showing past the slide
 uniform sampler2D uChrome;
 uniform float uHasChrome;
@@ -171,7 +172,10 @@ void main() {
   // artwork is exactly what reads as a separate step.
   if (uHasChrome > 0.5 && uAssembly > 0.001) {
     vec4 ch = texture2D(uChrome, vUv);
-    vec2 dOut = abs(vUv - uArtRect.xy) - uArtRect.zw * 0.5;
+    // the reveal tracks the HOLE closing in, not the slide: a slide set
+    // to cover overflows the hole, and masking against it would punch
+    // the overflow straight through the chrome's panels.
+    vec2 dOut = abs(vUv - uWipeRect.xy) - uWipeRect.zw * 0.5;
     float wipe = smoothstep(0.0, 0.005, max(dOut.x, dOut.y));
     col = mix(col, ch.rgb, ch.a * mix(uAssembly, wipe, uAsmWipe));
   }
@@ -258,7 +262,7 @@ export class GlLayer {
     this.scene = new Transform();
     this.white = new Texture(gl);       // 1px placeholder for uMap/uTag
     this.items = [];
-    this.plate = [1, 1, 1];
+    this.plateOverride = null;
     this.chromeImg = null;
     this.chromeUrl = null;
     this.ok = true;
@@ -322,7 +326,13 @@ export class GlLayer {
         widthSegments: nodeCount - 1, heightSegments: 1,
       });
 
-      const color = getComputedStyle(card).getPropertyValue('--mw-color').trim() || '#cccccc';
+      const cs = getComputedStyle(card);
+      const color = cs.getPropertyValue('--mw-color').trim() || '#cccccc';
+      // the canvas showing past the slide defaults to the slide's OWN
+      // background, so a short page reads as the page continuing rather
+      // than as a hole punched in the card
+      const plate = this.plateOverride
+        || cssColor(cs.getPropertyValue('--mw-plate').trim() || color);
       // a card carrying real artwork brings its own branding — only the
       // placeholder cards get the baked corner tag
       const img = card.querySelector('img');
@@ -358,7 +368,8 @@ export class GlLayer {
           uSize: { value: [cardW, cardH] },
           uRadius: { value: radius },
           uArtRect: { value: [0.5, 0.5, 1, 1] },
-          uPlate: { value: this.plate.slice() },
+          uWipeRect: { value: [0.5, 0.5, 1, 1] },
+          uPlate: { value: plate.slice() },
           uChrome: { value: this.white },
           uHasChrome: { value: 0 },
           uAssembly: { value: 0 },
@@ -369,7 +380,7 @@ export class GlLayer {
       const mesh = new Mesh(this.gl, { geometry, program });
       mesh.setParent(this.scene);
 
-      if (img) this.loadImage(program, img);
+      if (img) this.loadImage(program, img, !this.plateOverride && !cs.getPropertyValue('--mw-plate').trim());
 
       return { mesh, program, card };
     });
@@ -397,16 +408,29 @@ export class GlLayer {
     });
   }
 
+  /* null override = every card uses its own colour */
   setPlate(rgb) {
-    this.plate = rgb;
-    this.items.forEach((it) => { it.program.uniforms.uPlate.value = rgb.slice(); });
+    this.plateOverride = rgb;
+    this.items.forEach((it) => {
+      const cs = getComputedStyle(it.card);
+      const p = rgb || cssColor(cs.getPropertyValue('--mw-plate').trim()
+        || cs.getPropertyValue('--mw-color').trim() || '#cccccc');
+      it.program.uniforms.uPlate.value = p.slice();
+    });
   }
 
-  loadImage(program, img) {
+  loadImage(program, img, autoPlate) {
     const apply = () => {
       const tex = new Texture(this.gl, { image: img, generateMipmaps: false });
       program.uniforms.uMap.value = tex;
       program.uniforms.uHasImage.value = 1;
+      // the canvas strip past a short page should be the page's own last
+      // row, so the join is invisible without anyone hand-matching a
+      // colour per CMS item
+      if (autoPlate) {
+        const p = edgeColor(img);
+        if (p) program.uniforms.uPlate.value = p;
+      }
     };
     if (img.complete && img.naturalWidth) apply();
     else img.addEventListener('load', apply, { once: true });
@@ -426,6 +450,30 @@ export class GlLayer {
     }
     this.items = [];
     this.ok = false;
+  }
+}
+
+/* average of an image's bottom row. returns null for a cross-origin image
+   (the canvas is tainted) so the caller keeps its configured colour. */
+function edgeColor(img) {
+  try {
+    const w = Math.min(64, img.naturalWidth);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = 1;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, img.naturalHeight - 1, img.naturalWidth, 1, 0, 0, w, 1);
+    const d = ctx.getImageData(0, 0, w, 1).data;
+    // median, not mean: a page's last row usually crosses some content
+    // (a face, a logo), and averaging that with the background gives mud
+    const mid = (ch) => {
+      const v = [];
+      for (let i = 0; i < w; i++) v.push(d[i * 4 + ch]);
+      v.sort((a, b) => a - b);
+      return v[v.length >> 1] / 255;
+    };
+    return [mid(0), mid(1), mid(2)];
+  } catch (e) {
+    return null;
   }
 }
 
