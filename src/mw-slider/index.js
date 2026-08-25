@@ -176,6 +176,11 @@ export function init(root) {
     scrollSpan: num('scrollSpan', 0),
     friction: num('friction', 0.93),   // per-frame @60, dt-corrected below
     lerp: reduced ? 1 : num('lerp', 0.11),
+    // The wheel is NOT a slider control. Swallowing it means the page cannot
+    // scroll while the cursor is over the section, which traps the reader on
+    // the slider. Drag and arrow keys move the row; opt in with
+    // data-wheel="true" if a page really wants wheel paging.
+    wheel: root.dataset.wheel === 'true',
     loop: root.dataset.loop !== 'false',
     visible: 5,
 
@@ -785,9 +790,7 @@ export function init(root) {
 
   /* ---------- input ---------- */
   const onWheel = (e) => {
-    // in scroll-driven mode the wheel belongs to the page: the section must
-    // scroll past like any other, and the row is dragged, not wheeled
-    if (cfg.scrollSpan || isOpen) return;
+    if (!cfg.wheel || isOpen) return;
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
     if (Math.abs(delta) < 4) return;
     e.preventDefault();
@@ -881,7 +884,8 @@ export function init(root) {
   // rAF is suspended in hidden tabs; make sure we resume cleanly
   const onVis = () => { if (!document.hidden) { lastT = performance.now(); wake(); } };
 
-  stage.addEventListener('wheel', onWheel, { passive: false });
+  // not even attached unless asked for, so nothing can intercept the page
+  if (cfg.wheel) stage.addEventListener('wheel', onWheel, { passive: false });
   stage.addEventListener('pointerdown', onDown);
   stage.addEventListener('pointermove', onStageMove);
   stage.addEventListener('pointerleave', onStageLeave);

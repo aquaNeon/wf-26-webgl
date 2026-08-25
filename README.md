@@ -157,9 +157,12 @@ The page scroll carries the row; it does not drive it. The offset is visual
 only and never becomes part of the carousel position, so scrolling cannot
 scrub through the cards, cannot fight a drag and cannot change which card is
 which — the row is simply centred when the section is centred, and offset
-either side of that. Dragging remains the only way to move through the cards,
-and it still settles onto a slot. The wheel belongs to the page, so the
-section always scrolls past normally.
+either side of that. Dragging and the arrow keys move through the cards; the wheel does not.
+
+The wheel is not a slider control at all: swallowing it means the page cannot
+scroll while the cursor is over the section, which traps the reader on the
+slider with no way out. It is not even listened for unless a page opts in
+with `data-wheel="true"`.
 
 Row: `data-spacing` `data-skew-y` `data-perspective` `data-push`
 `data-chase` `data-lag` `data-friction` `data-lerp` `data-loop`
