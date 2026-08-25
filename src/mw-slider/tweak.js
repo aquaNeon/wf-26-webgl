@@ -47,7 +47,6 @@ export function attachTweak(inst) {
     /* UI assembly */
     ['asmGate', 0, 1, 0.01, 'assembly starts at'],
     ['asmRate', 0.02, 0.5, 0.01, 'assembly speed'],
-    ['asmWipe', 0, 1, 0.05, 'reveal vs crossfade'],
     ['holeX', 0, 0.3, 0.001, 'hole x'],
     ['holeY', 0, 0.3, 0.001, 'hole y'],
     ['holeW', 0.3, 1, 0.001, 'hole width'],

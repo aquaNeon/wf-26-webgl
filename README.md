@@ -71,7 +71,31 @@ sleep, a reclaimed background tab) falls back to the DOM cards immediately and
 rebuilds itself on `webglcontextrestored` — up to three times. rAF parks when the row, flight,
 material and fades are all settled; any input wakes it.
 
-## Webflow authoring
+## Webflow markup
+
+The module accepts the Webflow component tree directly — see `webflow.html`:
+
+- `data-webgl-canvas` on the stage element (this is the root; put the
+  `data-*` config on it)
+- `data-webgl-item` on each card
+- `data-webgl-image` on the **artwork** image
+- `data-webgl-overlay` on the **UI chrome** image (transparent canvas hole)
+- `data-webgl-tag` (or `.webgl_cards_tag`) on the card's tag block
+- `data-webgl-heading` on anything that should fade out while a card is open
+
+Every card can carry its own overlay, which is what a component wants;
+textures are cached per URL, so eight cards sharing one UI cost one upload.
+Textures are re-fetched from the URL with CORS rather than reused from the
+`<img>` — WebGL rejects a cross-origin image that wasn't requested with CORS,
+and Webflow serves assets from its CDN.
+
+The module injects the layout CSS it needs (absolute cards, stage flexbox,
+perspective) and creates a backdrop and close button when the markup has none.
+The tag blocks are lifted into a screen-space layer at init — inside the card
+they would inherit its skew and scale — and put back on `destroy()`. Sizing
+comes from `--mw-card-w` and `--mw-stage-h` so Webflow classes can override it.
+
+## Reference-markup authoring
 
 Everything on `[data-mw="root"]` (all optional, defaults in `index.js`):
 

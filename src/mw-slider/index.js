@@ -22,21 +22,63 @@ export function init(root) {
   if (root.dataset.mwInit) return root._mw;
   root.dataset.mwInit = 'true';
 
-  const stage = root.querySelector('[data-mw="stage"]');
-  const backdrop = root.querySelector('[data-mw="backdrop"]');
-  const frame = root.querySelector('[data-mw="frame"]');
-  const tip = root.querySelector('[data-mw="tip"]');
-  const tipSwatch = root.querySelector('[data-mw="swatch"]');
-  const tipTitle = root.querySelector('[data-mw="tip-title"]');
-  const tipBy = root.querySelector('[data-mw="tip-by"]');
-  const closeBtn = root.querySelector('[data-mw="close"]');
-  const headEl = root.querySelector('[data-mw="head"]');
+  /* Two markup flavours: the reference markup in this repo, and a
+     Webflow component tree tagged with data-webgl-*. Anything the
+     Webflow side doesn't provide (backdrop, close button) is created,
+     and anything optional (heading, counter) is simply skipped. */
+  const stage = root.querySelector('[data-mw="stage"]') || root;
+  const cards = Array.from(root.querySelectorAll('[data-mw="card"], [data-webgl-item]'));
+  const n = cards.length;
+  if (!n) return null;
+
+  const wf = !root.querySelector('[data-mw="stage"]');
+  if (wf) injectCss();
+
+  const el = (sel, make) => root.querySelector(sel) || (make ? make() : null);
+  const backdrop = el('[data-mw="backdrop"]', () => {
+    const d = document.createElement('div');
+    d.className = 'mw-backdrop';
+    stage.appendChild(d);
+    return d;
+  });
+  const closeBtn = el('[data-mw="close"]', () => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'mw-close';
+    b.setAttribute('aria-label', 'Close');
+    b.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 2 L14 14 M14 2 L2 14"/></svg>';
+    root.appendChild(b);
+    return b;
+  });
+  const headEl = root.querySelector('[data-mw="head"]')
+    || (root.closest('section') || root).querySelector('[data-webgl-heading]');
   const countEl = root.querySelector('[data-mw="counter"]');
   const indexEl = root.querySelector('[data-mw="index"]');
   const totalEl = root.querySelector('[data-mw="total"]');
-  const cards = Array.from(stage.querySelectorAll('[data-mw="card"]'));
-  const n = cards.length;
-  if (!n) return null;
+
+  /* The tip: either the single one in the reference markup, or the tag
+     block each Webflow card carries. Those live INSIDE the card, which
+     is skewed and scaled, so they are lifted out into a screen-space
+     layer once at init and put back on destroy — that keeps the real
+     links and text intact instead of redrawing them. */
+  const globalTip = root.querySelector('[data-mw="tip"]');
+  const tipSwatch = root.querySelector('[data-mw="swatch"]');
+  const tipTitle = root.querySelector('[data-mw="tip-title"]');
+  const tipBy = root.querySelector('[data-mw="tip-by"]');
+  const cardTips = cards.map((c) => c.querySelector('[data-webgl-tag], .webgl_cards_tag'));
+  let tipLayer = null;
+  if (cardTips.some(Boolean)) {
+    tipLayer = document.createElement('div');
+    tipLayer.className = 'mw-tip-layer';
+    stage.appendChild(tipLayer);
+    cardTips.forEach((t) => {
+      if (!t) return;
+      t._mwHome = t.parentNode;
+      t.classList.add('mw-tip');
+      tipLayer.appendChild(t);
+    });
+  }
+  let activeTip = null;
 
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const num = (k, d) => { const v = parseFloat(root.dataset[k]); return Number.isNaN(v) ? d : v; };
@@ -98,13 +140,12 @@ export function init(root) {
     holeY: num('holeY', 0.047004),     // from the TOP edge
     holeW: num('holeW', 0.804167),
     holeH: num('holeH', 0.905993),
-    fit: root.dataset.fit || 'width',        // width | contain | cover
+    fit: root.dataset.fit || 'cover',        // cover | width | contain
     anchor: root.dataset.anchor || 'top',    // top | center
     plate: root.dataset.plate || '',   // canvas behind the slide; empty =
                                        // each card uses its own --mw-color
     asmGate: num('asmGate', 0.62),     // openness at which assembly starts
     asmRate: num('asmRate', 0.10),     // how quickly it resolves
-    asmWipe: num('asmWipe', 1),        // 1 = reveal the UI, 0 = cross-fade it
 
     /* chrome */
     frameGap: num('frameGap', 14),
@@ -120,9 +161,8 @@ export function init(root) {
   let o = 0, ov = 0, oTarget = 0;                    // the flight spring
   let asm = 0;                                       // UI assembly, 0..1
   const artRect = [0.5, 0.5, 1, 1];
-  const wipeRect = [0.5, 0.5, 1, 1];
   let rowFrom = null, rowTo = 0;
-  let landed = false, frameT = 0, tipT = 0, closeT = 0;
+  let landed = false, landedT = 0, tipT = 0, closeT = 0;
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
@@ -133,6 +173,7 @@ export function init(root) {
   let gl = reduced ? null : new GlLayer(stage, cfg.persp);
   let useGl = !!(gl && gl.ok);
   let glRetries = 0;
+  if (gl) gl.onTexture = () => wake();   // a late image must redraw a parked loop
 
   const nodeBuf = new Float32Array(MAX_NODES * 3);
   const pt = new Float32Array(3);
@@ -143,6 +184,14 @@ export function init(root) {
     c._chain = new ClothChain(cfg.nodes);
     c._chain.phase = ci * 2.399;   // golden-angle spread of the ripple
     c._parked = true;   // snap to slots on the first laid-out frame
+    // Webflow cards are divs — give them the affordances the reference
+    // markup gets from being a <button>
+    if (!c.matches('button, a') && !c.hasAttribute('tabindex')) {
+      c.setAttribute('tabindex', '0');
+      c.setAttribute('role', 'button');
+      const label = c.querySelector('[data-webgl-title], .webgl_cards_poject');
+      if (label && !c.getAttribute('aria-label')) c.setAttribute('aria-label', label.textContent.trim());
+    }
   });
   setMediaHidden(useGl);
   if (gl) attachGlHandlers(gl);
@@ -153,6 +202,10 @@ export function init(root) {
     cards.forEach((c) => {
       const media = c.querySelector('[data-mw="media"]');
       if (media) media.style.visibility = hidden ? 'hidden' : '';
+      // Webflow cards have no media wrapper; the images themselves are
+      // the source for the textures and must not also be painted
+      c.querySelectorAll('[data-webgl-image], [data-webgl-overlay]')
+        .forEach((im) => { im.style.visibility = hidden ? 'hidden' : ''; });
     });
   }
 
@@ -207,14 +260,16 @@ export function init(root) {
   }
   let builtKey = '';
 
+  function allTips() {
+    return tipLayer ? cardTips.filter(Boolean) : (globalTip ? [globalTip] : []);
+  }
+
   function layoutChrome() {
-    const w = cardW * openScale, h = cardH * openScale, g = cfg.frameGap;
-    frame.style.width = (w + g * 2) + 'px';
-    frame.style.height = (h + g * 2) + 'px';
-    frame.style.marginLeft = -(w / 2 + g) + 'px';
-    frame.style.marginTop = -(h / 2 + g) + 'px';
-    tip.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
-    tip.style.top = 'calc(50% + ' + (h / 2 - 14) + 'px)';
+    const w = cardW * openScale, h = cardH * openScale;
+    allTips().forEach((t) => {
+      t.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
+      t.style.top = 'calc(50% + ' + (h / 2 - 14) + 'px)';
+    });
   }
 
   /* where the slide sits inside the card at assembly `a`, in card uv
@@ -235,13 +290,6 @@ export function init(root) {
     artRect[1] = lerp(0.5, cy, a);
     artRect[2] = lerp(1, s, a);
     artRect[3] = lerp(1, s, a);
-
-    // the chrome is revealed by the hole closing in from the card edges,
-    // which is independent of how the slide is fitted inside it
-    wipeRect[0] = lerp(0.5, hx + hw / 2, a);
-    wipeRect[1] = lerp(0.5, holeTop - hh / 2, a);
-    wipeRect[2] = lerp(1, hw, a);
-    wipeRect[3] = lerp(1, hh, a);
     return artRect;
   }
 
@@ -316,10 +364,10 @@ export function init(root) {
     asm += (asmWant - asm) * (reduced ? 1 : kOf(cfg.asmRate));
     const asmAwake = Math.abs(asm - asmWant) > 0.002;
 
-    /* -- chrome clocks: frame after landing, tip after frame */
-    const frameWant = landed ? 1 : 0;
-    frameT += (frameWant - frameT) * (reduced ? 1 : kOf(0.14));
-    const tipWant = frameT > 0.75 && landed ? 1 : 0;
+    /* -- chrome clocks: the tip arrives once the card reads as landed */
+    const landedWant = landed ? 1 : 0;
+    landedT += (landedWant - landedT) * (reduced ? 1 : kOf(0.14));
+    const tipWant = landedT > 0.75 && landed ? 1 : 0;
     tipT += (tipWant - tipT) * (reduced ? 1 : kOf(0.16));
     const closeWant = flightActive && (isOpen ? clamp01(o) > 0.45 : clamp01(o) > 0.6) ? 1 : 0;
     closeT += (closeWant - closeT) * (reduced ? 1 : kOf(0.2));
@@ -494,12 +542,9 @@ export function init(root) {
         // only the opened card becomes the Designer window
         const a = i === activeIndex ? asm : 0;
         u.uAssembly.value = a;
-        u.uAsmWipe.value = cfg.asmWipe;
         const r = artRectAt(a);
         const ar = u.uArtRect.value;
         ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
-        const wr = u.uWipeRect.value;
-        wr[0] = wipeRect[0]; wr[1] = wipeRect[1]; wr[2] = wipeRect[2]; wr[3] = wipeRect[3];
 
         // stacking = sort by the card's intended depth, active card
         // included. in the row this reproduces left-over-right exactly
@@ -516,12 +561,13 @@ export function init(root) {
 
     /* -- chrome + fades */
     backdrop.style.opacity = (oc * 0.92).toFixed(3);
-    headEl.style.opacity = (1 - oc).toFixed(3);
-    countEl.style.opacity = (1 - oc).toFixed(3);
-    frame.style.opacity = frameT.toFixed(3);
-    tip.style.opacity = tipT.toFixed(3);
-    tip.style.transform = 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
-    tip.style.pointerEvents = tipT > 0.6 ? 'auto' : 'none';
+    if (headEl) headEl.style.opacity = (1 - oc).toFixed(3);
+    if (countEl) countEl.style.opacity = (1 - oc).toFixed(3);
+    if (activeTip) {
+      activeTip.style.opacity = tipT.toFixed(3);
+      activeTip.style.transform = 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
+      activeTip.style.pointerEvents = tipT > 0.6 ? 'auto' : 'none';
+    }
     closeBtn.style.opacity = closeT.toFixed(3);
     closeBtn.style.pointerEvents = closeT > 0.5 ? 'auto' : 'none';
 
@@ -531,7 +577,7 @@ export function init(root) {
     /* -- park when everything is genuinely still */
     const rowAwake = dragging || Math.abs(velocity) > 0.0015 ||
       Math.abs(target - current) > 0.0008 || Math.abs(vSmooth) > 0.0004;
-    const chromeAwake = Math.abs(frameT - frameWant) > 0.004 ||
+    const chromeAwake = Math.abs(landedT - landedWant) > 0.004 ||
       Math.abs(tipT - tipWant) > 0.004 || Math.abs(closeT - closeWant) > 0.004;
     if (rowAwake || flightActive || simAwake || opAwake || chromeAwake || asmAwake) {
       cancelAnimationFrame(raf);    // never let two loops accumulate
@@ -564,12 +610,19 @@ export function init(root) {
     rowTo = current + relOf(i);
     target = rowTo;
 
-    const d = cards[i].dataset;
-    tipSwatch.style.background = getComputedStyle(cards[i]).getPropertyValue('--mw-color');
-    tipTitle.textContent = d.title || '';
-    tipBy.textContent = d.by ? 'by ' + d.by : '';
-    tipBy.href = d.href || '#';
-    tipBy.style.display = d.by ? '' : 'none';
+    // a Webflow card brings its own tag block; the reference markup has
+    // one shared tip that gets filled from the card's data attributes
+    activeTip = cardTips[i] || globalTip;
+    if (activeTip === globalTip && globalTip) {
+      const d = cards[i].dataset;
+      if (tipSwatch) tipSwatch.style.background = getComputedStyle(cards[i]).getPropertyValue('--mw-color');
+      if (tipTitle) tipTitle.textContent = d.title || '';
+      if (tipBy) {
+        tipBy.textContent = d.by ? 'by ' + d.by : '';
+        tipBy.href = d.href || '#';
+        tipBy.style.display = d.by ? '' : 'none';
+      }
+    }
 
     root.setAttribute('data-mw-open', '');
     closeBtn.focus({ preventScroll: true });
@@ -717,7 +770,7 @@ export function init(root) {
     // manual clock for tests / headless tabs: advances one frame of `ms`
     debugStep(ms) { frameBody(lastT + (ms || 16.7)); },
     state() {
-      return { o, ov, current, target, velocity, activeIndex, isOpen, landed, running, frameT, tipT };
+      return { o, ov, current, target, velocity, activeIndex, isOpen, landed, running, landedT, tipT };
     },
     destroy() {
       if (destroyed) return;
@@ -744,6 +797,20 @@ export function init(root) {
         if (media) media.style.visibility = '';
         cards[i].style.opacity = '';
       });
+      // put the tag blocks back where Webflow authored them
+      cardTips.forEach((t) => {
+        if (!t || !t._mwHome) return;
+        t.classList.remove('mw-tip');
+        t.style.cssText = '';
+        t._mwHome.appendChild(t);
+        delete t._mwHome;
+      });
+      if (tipLayer) tipLayer.remove();
+      if (wf) {
+        if (backdrop.classList.contains('mw-backdrop')) backdrop.remove();
+        if (closeBtn.classList.contains('mw-close')) closeBtn.remove();
+        root.removeAttribute('data-mw-dragging');
+      }
       if (gl) gl.dispose();
       delete root.dataset.mwInit;
       delete root._mw;
@@ -756,9 +823,41 @@ export function init(root) {
   return inst;
 }
 
+/* The Webflow tree only carries content and styling, so the module
+   supplies the layout it depends on. Everything is behind a CSS var with
+   a fallback, so a Webflow class can still override it. */
+let cssDone = false;
+function injectCss() {
+  if (cssDone) return;
+  cssDone = true;
+  const card = 'var(--mw-card-w, clamp(240px, 26cqw, 620px))';
+  const s = document.createElement('style');
+  s.textContent = `
+[data-webgl-canvas]{position:relative;display:flex;align-items:center;justify-content:center;
+  min-height:var(--mw-stage-h,100svh);overflow:clip;container-type:inline-size;
+  perspective:var(--mw-perspective,2200px);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:pan-y}
+[data-webgl-canvas][data-mw-dragging]{cursor:grabbing}
+[data-webgl-canvas] [data-webgl-item]{position:absolute;margin:0;padding:0;border:0;background:none;
+  width:${card};height:calc(${card} * 851 / 1440);transform-origin:50% 50%;cursor:pointer;outline:none}
+[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:2px solid currentColor;outline-offset:4px}
+[data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
+[data-webgl-canvas] [data-webgl-item] img{width:100%;height:100%;object-fit:cover;display:block}
+[data-webgl-canvas] .mw-backdrop{position:absolute;inset:0;z-index:500;opacity:0;pointer-events:none;
+  background:var(--mw-backdrop, #f7f6f3)}
+[data-mw-open] .mw-backdrop{pointer-events:auto}
+[data-webgl-canvas] .mw-tip-layer{position:absolute;inset:0;z-index:640;pointer-events:none}
+[data-webgl-canvas] .mw-tip{position:absolute;left:50%;top:50%;opacity:0;pointer-events:none;white-space:nowrap}
+.mw-close{position:absolute;top:clamp(16px,3svh,34px);right:clamp(16px,3cqw,34px);z-index:800;
+  width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,.15);background:#fff;color:#101010;
+  display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:transform .3s ease}
+.mw-close:hover{transform:rotate(90deg)}
+.mw-close svg{width:15px;height:15px}`;
+  document.head.appendChild(s);
+}
+
 export function initAll(scope) {
   const out = [];
-  (scope || document).querySelectorAll('[data-mw="root"]').forEach((r) => {
+  (scope || document).querySelectorAll('[data-mw="root"], [data-webgl-canvas]').forEach((r) => {
     const i = init(r);
     if (i) out.push(i);
   });

@@ -124,12 +124,10 @@ uniform float uRadius;
 // the chrome's canvas hole. one uniform scale, so the slide never
 // distorts — the aspect mismatch resolves as crop or canvas gap.
 uniform vec4 uArtRect;       // cx, cy, sx, sy in card uv
-uniform vec4 uWipeRect;      // the closing canvas hole, same layout
 uniform vec3 uPlate;         // canvas showing past the slide
 uniform sampler2D uChrome;
 uniform float uHasChrome;
 uniform float uAssembly;
-uniform float uAsmWipe;      // 1 = reveal geometrically, 0 = cross-fade
 
 varying vec2 vUv;
 varying float vShade;
@@ -165,19 +163,12 @@ void main() {
     }
   }
 
-  // the chrome is the mask: it is opaque everywhere except its canvas
-  // hole, so whatever the slide spills past the hole runs under it.
-  // it is REVEALED in the band the slide vacates as it shrinks, rather
-  // than cross-faded on top — fading a whole opaque UI through the
-  // artwork is exactly what reads as a separate step.
+  // the slide is simply BEHIND the UI, which fades in over it. the
+  // chrome is opaque everywhere except its canvas hole, so the slide's
+  // overflow is hidden by the panels themselves — no masking needed.
   if (uHasChrome > 0.5 && uAssembly > 0.001) {
     vec4 ch = texture2D(uChrome, vUv);
-    // the reveal tracks the HOLE closing in, not the slide: a slide set
-    // to cover overflows the hole, and masking against it would punch
-    // the overflow straight through the chrome's panels.
-    vec2 dOut = abs(vUv - uWipeRect.xy) - uWipeRect.zw * 0.5;
-    float wipe = smoothstep(0.0, 0.005, max(dOut.x, dOut.y));
-    col = mix(col, ch.rgb, ch.a * mix(uAssembly, wipe, uAsmWipe));
+    col = mix(col, ch.rgb, ch.a * uAssembly);
   }
 
   col *= vShade;
@@ -263,9 +254,46 @@ export class GlLayer {
     this.white = new Texture(gl);       // 1px placeholder for uMap/uTag
     this.items = [];
     this.plateOverride = null;
-    this.chromeImg = null;
     this.chromeUrl = null;
+    this.textures = new Map();   // src -> { tex, waiting[] }
+    this.onTexture = null;       // wakes the render loop when one arrives
     this.ok = true;
+  }
+
+  /* Textures are fetched from the URL with CORS rather than reused from
+     the <img> in the page: WebGL rejects a cross-origin image that was
+     not requested with CORS, and Webflow serves every asset from its CDN.
+     Keyed by src, so eight cards pointing at the same UI overlay cost one
+     upload. */
+  loadTexture(src, onReady) {
+    if (!src || !this.ok) return;
+    const hit = this.textures.get(src);
+    if (hit) {
+      if (hit.tex) onReady(hit.tex);
+      else hit.waiting.push(onReady);
+      return;
+    }
+    const entry = { tex: null, waiting: [onReady] };
+    this.textures.set(src, entry);
+    const im = new Image();
+    im.crossOrigin = 'anonymous';
+    im.onload = () => {
+      if (!this.ok) return;
+      entry.tex = new Texture(this.gl, {
+        image: im,
+        // NPOT mipmaps need WebGL2; without them a 1440px slide drawn at
+        // card size shimmers as the row moves
+        generateMipmaps: !!this.renderer.isWebgl2,
+      });
+      entry.waiting.forEach((fn) => fn(entry.tex));
+      entry.waiting.length = 0;
+      if (this.onTexture) this.onTexture();
+    };
+    im.onerror = () => {
+      this.textures.delete(src);
+      console.warn('[mw-slider] image failed to load (CORS or 404):', src);
+    };
+    im.src = src;
   }
 
   /* after a context restore the SAME gl object is live again, but every
@@ -293,6 +321,7 @@ export class GlLayer {
     s.currentProgram = null;
     gl.clearColor(0, 0, 0, 0);
     this.white = new Texture(gl);
+    this.textures = new Map();   // every upload died with the context
     // unparent the dead meshes FIRST — left in the scene they keep being
     // drawn from destroyed programs and buffers, which is a GL error per
     // mesh per frame even though the rebuilt ones look correct
@@ -335,7 +364,8 @@ export class GlLayer {
         || cssColor(cs.getPropertyValue('--mw-plate').trim() || color);
       // a card carrying real artwork brings its own branding — only the
       // placeholder cards get the baked corner tag
-      const img = card.querySelector('img');
+      const img = card.querySelector('[data-webgl-image]') || card.querySelector('img:not([data-webgl-overlay])');
+      const overlay = card.querySelector('[data-webgl-overlay]');
       const tag = makeTagTexture(this.gl, img ? '' : card.dataset.title);
       const pad = 20;
       const tagRect = [pad / cardW, 1 - (pad + tag.h) / cardH, tag.w / cardW, tag.h / cardH];
@@ -368,43 +398,52 @@ export class GlLayer {
           uSize: { value: [cardW, cardH] },
           uRadius: { value: radius },
           uArtRect: { value: [0.5, 0.5, 1, 1] },
-          uWipeRect: { value: [0.5, 0.5, 1, 1] },
           uPlate: { value: plate.slice() },
           uChrome: { value: this.white },
           uHasChrome: { value: 0 },
           uAssembly: { value: 0 },
-          uAsmWipe: { value: 1 },
         },
       });
 
       const mesh = new Mesh(this.gl, { geometry, program });
       mesh.setParent(this.scene);
 
-      if (img) this.loadImage(program, img, !this.plateOverride && !cs.getPropertyValue('--mw-plate').trim());
+      const artSrc = img ? (img.currentSrc || img.src) : '';
+      const uiSrc = overlay ? (overlay.currentSrc || overlay.src) : '';
+      if (artSrc) {
+        this.loadTexture(artSrc, (t) => {
+          program.uniforms.uMap.value = t;
+          program.uniforms.uHasImage.value = 1;
+        });
+      }
+      if (uiSrc) {
+        this.loadTexture(uiSrc, (t) => {
+          program.uniforms.uChrome.value = t;
+          program.uniforms.uHasChrome.value = 1;
+        });
+      }
 
-      return { mesh, program, card };
+      return { mesh, program, card, ownUi: !!uiSrc };
     });
+    if (this.chromeUrl) this.applyChrome();
+  }
+
+  /* one shared UI overlay for every card that didn't bring its own */
+  loadChrome(url, done) {
+    if (!url) return;
+    this.chromeUrl = url;
+    if (done) this.onTexture = done;
     this.applyChrome();
   }
 
-  /* the UI chrome is one shared image for every card. the HTMLImageElement
-     outlives a context loss, so applyChrome() can re-upload it whenever
-     the cards are rebuilt. */
-  loadChrome(url, done) {
-    if (!url || this.chromeUrl === url) return;
-    this.chromeUrl = url;
-    const img = new Image();
-    img.onload = () => { this.chromeImg = img; this.applyChrome(); if (done) done(); };
-    img.onerror = () => console.warn('[mw-slider] UI chrome image failed to load:', url);
-    img.src = url;
-  }
-
   applyChrome() {
-    if (!this.chromeImg || !this.ok || !this.items.length) return;
-    const tex = new Texture(this.gl, { image: this.chromeImg, generateMipmaps: false });
+    if (!this.chromeUrl || !this.ok) return;
     this.items.forEach((it) => {
-      it.program.uniforms.uChrome.value = tex;
-      it.program.uniforms.uHasChrome.value = 1;
+      if (it.ownUi) return;
+      this.loadTexture(this.chromeUrl, (t) => {
+        it.program.uniforms.uChrome.value = t;
+        it.program.uniforms.uHasChrome.value = 1;
+      });
     });
   }
 
@@ -417,23 +456,6 @@ export class GlLayer {
         || cs.getPropertyValue('--mw-color').trim() || '#cccccc');
       it.program.uniforms.uPlate.value = p.slice();
     });
-  }
-
-  loadImage(program, img, autoPlate) {
-    const apply = () => {
-      const tex = new Texture(this.gl, { image: img, generateMipmaps: false });
-      program.uniforms.uMap.value = tex;
-      program.uniforms.uHasImage.value = 1;
-      // the canvas strip past a short page should be the page's own last
-      // row, so the join is invisible without anyone hand-matching a
-      // colour per CMS item
-      if (autoPlate) {
-        const p = edgeColor(img);
-        if (p) program.uniforms.uPlate.value = p;
-      }
-    };
-    if (img.complete && img.naturalWidth) apply();
-    else img.addEventListener('load', apply, { once: true });
   }
 
   render() {
@@ -450,30 +472,6 @@ export class GlLayer {
     }
     this.items = [];
     this.ok = false;
-  }
-}
-
-/* average of an image's bottom row. returns null for a cross-origin image
-   (the canvas is tainted) so the caller keeps its configured colour. */
-function edgeColor(img) {
-  try {
-    const w = Math.min(64, img.naturalWidth);
-    const c = document.createElement('canvas');
-    c.width = w; c.height = 1;
-    const ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, img.naturalHeight - 1, img.naturalWidth, 1, 0, 0, w, 1);
-    const d = ctx.getImageData(0, 0, w, 1).data;
-    // median, not mean: a page's last row usually crosses some content
-    // (a face, a logo), and averaging that with the background gives mud
-    const mid = (ch) => {
-      const v = [];
-      for (let i = 0; i < w; i++) v.push(d[i * 4 + ch]);
-      v.sort((a, b) => a - b);
-      return v[v.length >> 1] / 255;
-    };
-    return [mid(0), mid(1), mid(2)];
-  } catch (e) {
-    return null;
   }
 }
 

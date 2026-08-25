@@ -124,25 +124,6 @@
     mix-blend-mode: difference;
   }
 
-  [data-mw="frame"] {
-    position: absolute;
-    left: 50%; top: 50%;
-    z-index: 620;
-    border: 1px solid var(--mw-frame);
-    opacity: 0;
-    pointer-events: none;
-  }
-  [data-mw="frame"] i {
-    position: absolute;
-    width: 7px; height: 7px;
-    background: var(--page-bg);
-    border: 1px solid var(--mw-frame);
-  }
-  [data-mw="frame"] i:nth-child(1) { left: -4px;  top: -4px; }
-  [data-mw="frame"] i:nth-child(2) { right: -4px; top: -4px; }
-  [data-mw="frame"] i:nth-child(3) { right: -4px; bottom: -4px; }
-  [data-mw="frame"] i:nth-child(4) { left: -4px;  bottom: -4px; }
-
   [data-mw="tip"] {
     position: absolute;
     z-index: 640;
@@ -279,7 +260,7 @@
   data-friction="0.93"
   data-lerp="0.11"
   data-ui="/ui-chrome.png"
-  data-fit="width"
+  data-fit="cover"
   data-anchor="top"
   data-hole-x="0.028472"
   data-hole-y="0.047004"
@@ -287,7 +268,6 @@
   data-hole-h="0.905993"
   data-asm-gate="0.62"
   data-asm-rate="0.10"
-  data-asm-wipe="1"
   data-checker="true"
   data-loop="true">
 
@@ -340,8 +320,6 @@
             data-title="Northbound" data-by="N4" data-href="#">
       <div data-mw="media"><span data-mw="tag">Northbound</span></div>
     </button>
-
-    <div data-mw="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
     <div data-mw="tip">
       <span data-mw="swatch"></span>
