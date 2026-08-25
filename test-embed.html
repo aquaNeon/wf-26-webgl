@@ -58,8 +58,17 @@
 })();
 </script>
 
-<!-- exactly what goes into Webflow: one plain script tag, no module -->
-<script src="/dist/mw-slider.js"></script>
+<!-- In Webflow this is one plain tag:
+       <script src="https://your-host/mw-slider.js"></script>
+     Here it is injected with a timestamp so a rebuild is never served from
+     the browser cache while testing. -->
+<script>
+  (() => {
+    const s = document.createElement('script');
+    s.src = '/dist/mw-slider.js?t=' + Date.now();
+    document.body.appendChild(s);
+  })();
+</script>
 
 </body>
 </html>

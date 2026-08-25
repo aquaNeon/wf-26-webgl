@@ -21,7 +21,10 @@ export default defineConfig(({ mode }) => {
       target: 'es2018',
       lib: {
         entry: 'src/embed.js',
-        name: 'MwSlider',
+        // NOT 'MwSlider': an IIFE build assigns this global to the module's
+        // exports AFTER the module body runs, which would clobber the
+        // window.MwSlider handle (instances, destroyAll) that boot() sets.
+        name: 'MwSliderBundle',
         formats: ['iife'],
         fileName: () => 'mw-slider.js',
       },

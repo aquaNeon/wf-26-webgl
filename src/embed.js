@@ -7,17 +7,32 @@
 import { init, initAll } from './mw-slider/index.js';
 import { attachTweak } from './mw-slider/tweak.js';
 
-function boot() {
-  const instances = initAll();
+function boot(scope) {
+  const made = initAll(scope);
   const wanted = location.search.includes('mw-tweak')
-    || (instances[0] && instances[0].root.hasAttribute('data-tweak'));
-  if (wanted && instances[0]) attachTweak(instances[0]);
-  window.MwSlider = { instances, init, initAll };
-  return instances;
+    || (made[0] && made[0].root.hasAttribute('data-tweak'));
+  if (wanted && made[0]) attachTweak(made[0]);
+
+  const api = window.MwSlider && window.MwSlider.instances ? window.MwSlider : {
+    instances: [],
+    init,
+    // for Barba and friends: re-scan after a page swap, tear down before one
+    initAll: boot,
+    destroyAll() {
+      api.instances.forEach((i) => i.destroy());
+      api.instances = [];
+    },
+    attachTweak,
+  };
+  // drop any instance destroyed since the last boot
+  api.instances = api.instances.filter((i) => i.root.dataset.mwInit).concat(made);
+  window.MwSlider = api;
+  return made;
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
+  // wrapped: as a listener, boot would receive the Event as its scope
+  document.addEventListener('DOMContentLoaded', () => boot());
 } else {
   boot();
 }
