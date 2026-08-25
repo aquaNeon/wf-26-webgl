@@ -618,6 +618,9 @@ export function init(root) {
         const r = artRectAt(a);
         const ar = u.uArtRect.value;
         ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
+        const hr = u.uHole.value;                   // uv space, y up
+        hr[0] = cfg.holeX; hr[1] = 1 - cfg.holeY - cfg.holeH;
+        hr[2] = cfg.holeW; hr[3] = cfg.holeH;
 
         // stacking = sort by the card's intended depth, active card
         // included. in the row this reproduces left-over-right exactly

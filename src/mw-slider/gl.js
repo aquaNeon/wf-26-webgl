@@ -124,6 +124,7 @@ uniform float uRadius;
 // the chrome's canvas hole. one uniform scale, so the slide never
 // distorts — the aspect mismatch resolves as crop or canvas gap.
 uniform vec4 uArtRect;       // cx, cy, sx, sy in card uv
+uniform vec4 uHole;          // the chrome's canvas hole: x, y, w, h in uv
 uniform vec3 uPlate;         // canvas showing past the slide
 uniform sampler2D uChrome;
 uniform float uHasChrome;
@@ -140,23 +141,35 @@ void main() {
   if (edge <= 0.001) discard;
 
   vec2 auv = (vUv - uArtRect.xy) / uArtRect.zw + 0.5;
-  bool inArt = auv.x >= 0.0 && auv.x <= 1.0 && auv.y >= 0.0 && auv.y <= 1.0;
+  // the epsilon closes the hairline gap that float error opens between the
+  // slide's last texel and the fallback colour
+  bool inArt = auv.x >= -0.002 && auv.x <= 1.002 && auv.y >= -0.002 && auv.y <= 1.002;
 
-  vec3 col = uPlate;
+  // Past the slide there are two different answers. Inside the canvas hole
+  // it is the canvas itself showing past a short page. Outside the hole the
+  // chrome is about to cover it, so it must be the slide's own edge — the
+  // plate there would bleed through the chrome's antialiased edge as a pale
+  // hairline right along the artwork.
+  bool inHole = vUv.x >= uHole.x && vUv.x <= uHole.x + uHole.z
+             && vUv.y >= uHole.y && vUv.y <= uHole.y + uHole.w;
+  vec3 col = inHole ? uPlate
+    : (uHasImage > 0.5 ? texture2D(uMap, clamp(auv, 0.0, 1.0)).rgb : uColor);
+
   if (inArt) {
+    vec2 suv = clamp(auv, 0.0, 1.0);
     col = uColor;
-    if (uHasImage > 0.5) col = texture2D(uMap, auv).rgb;
+    if (uHasImage > 0.5) col = texture2D(uMap, suv).rgb;
 
     // debug checkerboard STANDS IN for missing artwork — never over it
     if (uChecker > 0.5 && uHasImage < 0.5) {
-      vec2 c = floor(auv * vec2(12.0, 8.0));
+      vec2 c = floor(suv * vec2(12.0, 8.0));
       float ck = mod(c.x + c.y, 2.0);
       col = mix(col * 0.82, mix(col, vec3(1.0), 0.18), ck);
     }
 
     // corner tag, difference-blended like the DOM version's
     // mix-blend-mode. it lives on the surface, so it folds too.
-    vec2 tuv = (vec2(auv.x, 1.0 - auv.y) - uTagRect.xy) / uTagRect.zw;
+    vec2 tuv = (vec2(suv.x, 1.0 - suv.y) - uTagRect.xy) / uTagRect.zw;
     if (tuv.x >= 0.0 && tuv.x <= 1.0 && tuv.y >= 0.0 && tuv.y <= 1.0) {
       float t = texture2D(uTag, vec2(tuv.x, 1.0 - tuv.y)).a * uTagAlpha;
       col = mix(col, abs(vec3(1.0) - col), t * 0.82);
@@ -404,6 +417,7 @@ export class GlLayer {
           uSize: { value: [cardW, cardH] },
           uRadius: { value: radius },
           uArtRect: { value: [0.5, 0.5, 1, 1] },
+          uHole: { value: [0, 0, 1, 1] },
           uPlate: { value: plate.slice() },
           uChrome: { value: this.white },
           uHasChrome: { value: 0 },
