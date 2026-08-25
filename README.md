@@ -155,6 +155,8 @@ Everything on `[data-mw="root"]` (all optional, defaults in `index.js`):
 
 Scroll: `data-scroll-span` — how far the row is CARRIED, in cards, across one
 full pass of the section through the viewport (0, the default, is off).
+A positive value moves the cards right as the page scrolls down and left as it
+scrolls back up; a negative value mirrors that.
 
 The page scroll carries the row; it does not drive it. The offset is visual
 only and never becomes part of the carousel position, so scrolling cannot
