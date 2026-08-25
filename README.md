@@ -39,6 +39,23 @@ npm run build      # dist/ bundle for Webflow embed
 - `src/mw-slider/tweak.js` — dev panel; every physical constant is a live
   slider. Don't ship.
 
+## UI assembly
+
+Cards are 1440 x 851 — the aspect of both the slides and the Designer chrome
+in `public/`. The slide lives in its own rect inside the card: at rest that
+rect *is* the card, and as the flight lands the rect shrinks into the chrome's
+canvas hole while the chrome is revealed around it. Closing reverses it.
+
+It is one uniform scale, so the slide never distorts; the mismatch between the
+slide (1.692) and the canvas hole (1.502) resolves as a strip of canvas under
+the page (`fit: width`, `anchor: top` — how a real Designer viewport reads) or
+as a crop (`fit: cover`).
+
+Two details make it read as one motion rather than a second step: it starts at
+`asmGate` while the card is still folding, so the material covers the swap; and
+the chrome is *revealed* in the band the slide vacates rather than cross-faded
+over it, so the UI is never visible through the artwork.
+
 Fallbacks: `prefers-reduced-motion` or no/software WebGL → DOM cards render
 normally, no cloth, instant-ish flights. A lost WebGL context (driver reset,
 sleep, a reclaimed background tab) falls back to the DOM cards immediately and
@@ -65,6 +82,12 @@ Material: `data-nodes` `data-grip` `data-grip-pow` `data-grip-base`
 `data-bend-stiff` `data-soft-amp` `data-shade`
 (the right edge is always the locked edge; the left side always folds
 backward into depth)
+
+UI assembly: `data-ui` (chrome PNG with a transparent canvas hole),
+`data-fit` (`width` | `contain` | `cover`), `data-anchor` (`top` | `center`),
+`data-plate` (canvas colour behind the slide), `data-hole-x/y/w/h` (the hole
+in 0..1 of the image, y from the top), `data-asm-gate` (openness at which it
+starts), `data-asm-rate`, `data-asm-wipe` (1 reveals the UI, 0 cross-fades it)
 
 Chrome: `data-frame-gap` `data-radius` `data-checker`
 

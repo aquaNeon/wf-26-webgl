@@ -12,7 +12,7 @@
    ============================================================ */
 
 import { ClothChain } from './cloth.js';
-import { GlLayer, MAX_NODES, composeCardMatrix, transformPoint } from './gl.js';
+import { GlLayer, MAX_NODES, composeCardMatrix, transformPoint, cssColor } from './gl.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const clamp01 = (v) => clamp(v, 0, 1);
@@ -90,6 +90,21 @@ export function init(root) {
     softAmp: num('softAmp', 0.16),     // material amplitude during row scroll
     shade: num('shade', 1.0),          // fold darkening
 
+    /* UI assembly — the landed card becomes the Designer window and the
+       slide tucks itself into the canvas hole. hole defaults are measured
+       from the shipped chrome PNG (41,40 1158x771 of 1440x851). */
+    uiSrc: root.dataset.ui || '',
+    holeX: num('holeX', 0.028472),
+    holeY: num('holeY', 0.047004),     // from the TOP edge
+    holeW: num('holeW', 0.804167),
+    holeH: num('holeH', 0.905993),
+    fit: root.dataset.fit || 'width',        // width | contain | cover
+    anchor: root.dataset.anchor || 'top',    // top | center
+    plate: root.dataset.plate || '#ffffff',  // canvas behind the slide
+    asmGate: num('asmGate', 0.62),     // openness at which assembly starts
+    asmRate: num('asmRate', 0.10),     // how quickly it resolves
+    asmWipe: num('asmWipe', 1),        // 1 = reveal the UI, 0 = cross-fade it
+
     /* chrome */
     frameGap: num('frameGap', 14),
     landedVel: num('landedVel', 1.4),  // |ov| below this counts as landed
@@ -102,6 +117,8 @@ export function init(root) {
   let current = 0, target = 0, velocity = 0, prevCurrent = 0, vSmooth = 0;
   let hovered = -1, activeIndex = -1, isOpen = false;
   let o = 0, ov = 0, oTarget = 0;                    // the flight spring
+  let asm = 0;                                       // UI assembly, 0..1
+  const artRect = [0.5, 0.5, 1, 1];
   let rowFrom = null, rowTo = 0;
   let landed = false, frameT = 0, tipT = 0, closeT = 0;
   let pointerX = -1e5, pointerOn = false;
@@ -178,8 +195,10 @@ export function init(root) {
       const key = cardW + 'x' + cardH + 'x' + cfg.nodes;
       if (key !== builtKey) {
         builtKey = key;
+        gl.plate = cssColor(cfg.plate);
         gl.buildCards(cards, cfg.nodes, cardW, cardH, cfg.radius);
       }
+      gl.loadChrome(cfg.uiSrc, wake);
       gl.items.forEach((it) => { it.program.uniforms.uChecker.value = cfg.checker ? 1 : 0; });
     }
     wake();
@@ -194,6 +213,27 @@ export function init(root) {
     frame.style.marginTop = -(h / 2 + g) + 'px';
     tip.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
     tip.style.top = 'calc(50% + ' + (h / 2 - 14) + 'px)';
+  }
+
+  /* where the slide sits inside the card at assembly `a`, in card uv
+     (y up). one uniform scale for both axes — the slide and the card
+     share an aspect, so the only mismatch is against the hole, and that
+     resolves as a crop or a strip of canvas, never a stretch. */
+  function artRectAt(a) {
+    const hx = cfg.holeX, hw = cfg.holeW, hh = cfg.holeH;
+    const s = cfg.fit === 'cover' ? Math.max(hw, hh)
+      : cfg.fit === 'contain' ? Math.min(hw, hh)
+        : hw;                                  // 'width', how a real canvas behaves
+    const holeTop = 1 - cfg.holeY;             // hole y is measured from the top
+    const cx = hx + hw / 2;
+    // pinning to the canvas top reads like a page in a Designer viewport;
+    // centring reads like an image placed in a frame
+    const cy = cfg.anchor === 'top' ? holeTop - s / 2 : holeTop - hh / 2;
+    artRect[0] = lerp(0.5, cx, a);
+    artRect[1] = lerp(0.5, cy, a);
+    artRect[2] = lerp(1, s, a);
+    artRect[3] = lerp(1, s, a);
+    return artRect;
   }
 
   function relOf(i) {
@@ -258,6 +298,14 @@ export function init(root) {
     const frameVel = (current - prevCurrent) / f60;
     prevCurrent = current;
     vSmooth += (frameVel - vSmooth) * kOf(0.25);
+
+    /* -- UI assembly. deliberately starts BEFORE the flight settles: the
+       slide retreats into the canvas while the card is still folding, so
+       the material motion covers the swap instead of it reading as a
+       separate step. on close it lets go the moment the card leaves. */
+    const asmWant = (isOpen && activeIndex >= 0 && clamp01(o) > cfg.asmGate) ? 1 : 0;
+    asm += (asmWant - asm) * (reduced ? 1 : kOf(cfg.asmRate));
+    const asmAwake = Math.abs(asm - asmWant) > 0.002;
 
     /* -- chrome clocks: frame after landing, tip after frame */
     const frameWant = landed ? 1 : 0;
@@ -434,6 +482,14 @@ export function init(root) {
         u.uAlpha.value = card._op;
         u.uTagAlpha.value = i === activeIndex ? 1 - clamp01(oc * 2) : 1;
 
+        // only the opened card becomes the Designer window
+        const a = i === activeIndex ? asm : 0;
+        u.uAssembly.value = a;
+        u.uAsmWipe.value = cfg.asmWipe;
+        const r = artRectAt(a);
+        const ar = u.uArtRect.value;
+        ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
+
         // stacking = sort by the card's intended depth, active card
         // included. in the row this reproduces left-over-right exactly
         // (z is -rel * zGap, monotonic in rel); on a flight the opening
@@ -466,7 +522,7 @@ export function init(root) {
       Math.abs(target - current) > 0.0008 || Math.abs(vSmooth) > 0.0004;
     const chromeAwake = Math.abs(frameT - frameWant) > 0.004 ||
       Math.abs(tipT - tipWant) > 0.004 || Math.abs(closeT - closeWant) > 0.004;
-    if (rowAwake || flightActive || simAwake || opAwake || chromeAwake) {
+    if (rowAwake || flightActive || simAwake || opAwake || chromeAwake || asmAwake) {
       cancelAnimationFrame(raf);    // never let two loops accumulate
       raf = requestAnimationFrame(tick);
     } else {
@@ -638,6 +694,8 @@ export function init(root) {
         cards.forEach((c, ci) => { c._chain.resize(cfg.nodes); c._chain.phase = ci * 2.399; c._parked = true; });
         if (useGl) measure();
       }
+      if (key === 'plate' && useGl) gl.setPlate(cssColor(value));
+      if (key === 'uiSrc' && useGl) { gl.chromeUrl = null; gl.loadChrome(value, wake); }
       if (key === 'checker' && useGl) {
         gl.items.forEach((it) => { it.program.uniforms.uChecker.value = value ? 1 : 0; });
       }

@@ -32,7 +32,8 @@
     touch-action: pan-y;
 
     --mw-card-w: clamp(240px, 26cqw, 620px);
-    --mw-card-h: calc(var(--mw-card-w) * 2 / 3);
+    /* the slides and the Designer chrome are both 1440 x 851 */
+    --mw-card-h: calc(var(--mw-card-w) * 851 / 1440);
     --mw-radius: 4px;
     --mw-frame: #146ef5;
   }
@@ -277,6 +278,17 @@
   data-frame-gap="14"
   data-friction="0.93"
   data-lerp="0.11"
+  data-ui="/ui-chrome.png"
+  data-fit="width"
+  data-anchor="top"
+  data-plate="#ffffff"
+  data-hole-x="0.028472"
+  data-hole-y="0.047004"
+  data-hole-w="0.804167"
+  data-hole-h="0.905993"
+  data-asm-gate="0.62"
+  data-asm-rate="0.10"
+  data-asm-wipe="1"
   data-checker="true"
   data-loop="true">
 
@@ -305,7 +317,9 @@
 
     <button type="button" data-mw="card" style="--mw-color:#161c3d"
             data-title="Trevor Noah" data-by="Off-brand" data-href="#">
-      <div data-mw="media"><span data-mw="tag">Trevor Noah</span></div>
+      <div data-mw="media">
+        <img src="/slide-trevor-noah.png" alt="Trevor Noah" width="1440" height="851">
+      </div>
     </button>
 
     <button type="button" data-mw="card" style="--mw-color:#b9e0cf"

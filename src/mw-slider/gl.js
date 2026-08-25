@@ -119,6 +119,17 @@ uniform vec4 uTagRect;       // x, y, w, h of the tag in uv space
 uniform vec2 uSize;          // card w/h in px, for the corner sdf
 uniform float uRadius;
 
+// UI assembly: the slide sits in its own rect inside the card. at rest
+// that rect IS the card; as the chrome fades in the rect shrinks into
+// the chrome's canvas hole. one uniform scale, so the slide never
+// distorts — the aspect mismatch resolves as crop or canvas gap.
+uniform vec4 uArtRect;       // cx, cy, sx, sy in card uv
+uniform vec3 uPlate;         // canvas showing past the slide
+uniform sampler2D uChrome;
+uniform float uHasChrome;
+uniform float uAssembly;
+uniform float uAsmWipe;      // 1 = reveal geometrically, 0 = cross-fade
+
 varying vec2 vUv;
 varying float vShade;
 
@@ -129,24 +140,40 @@ void main() {
   float edge = 1.0 - smoothstep(-1.0, 0.5, d);
   if (edge <= 0.001) discard;
 
-  vec3 col = uColor;
-  if (uHasImage > 0.5) {
-    col = texture2D(uMap, vUv).rgb;
+  vec2 auv = (vUv - uArtRect.xy) / uArtRect.zw + 0.5;
+  bool inArt = auv.x >= 0.0 && auv.x <= 1.0 && auv.y >= 0.0 && auv.y <= 1.0;
+
+  vec3 col = uPlate;
+  if (inArt) {
+    col = uColor;
+    if (uHasImage > 0.5) col = texture2D(uMap, auv).rgb;
+
+    // debug checkerboard STANDS IN for missing artwork — never over it
+    if (uChecker > 0.5 && uHasImage < 0.5) {
+      vec2 c = floor(auv * vec2(12.0, 8.0));
+      float ck = mod(c.x + c.y, 2.0);
+      col = mix(col * 0.82, mix(col, vec3(1.0), 0.18), ck);
+    }
+
+    // corner tag, difference-blended like the DOM version's
+    // mix-blend-mode. it lives on the surface, so it folds too.
+    vec2 tuv = (vec2(auv.x, 1.0 - auv.y) - uTagRect.xy) / uTagRect.zw;
+    if (tuv.x >= 0.0 && tuv.x <= 1.0 && tuv.y >= 0.0 && tuv.y <= 1.0) {
+      float t = texture2D(uTag, vec2(tuv.x, 1.0 - tuv.y)).a * uTagAlpha;
+      col = mix(col, abs(vec3(1.0) - col), t * 0.82);
+    }
   }
 
-  // debug checkerboard so the material reads before real images exist
-  if (uChecker > 0.5) {
-    vec2 c = floor(vUv * vec2(12.0, 8.0));
-    float ck = mod(c.x + c.y, 2.0);
-    col = mix(col * 0.82, mix(col, vec3(1.0), 0.18), ck);
-  }
-
-  // corner tag, difference-blended like the DOM version's
-  // mix-blend-mode. it lives on the surface, so it folds too.
-  vec2 tuv = (vec2(vUv.x, 1.0 - vUv.y) - uTagRect.xy) / uTagRect.zw;
-  if (tuv.x >= 0.0 && tuv.x <= 1.0 && tuv.y >= 0.0 && tuv.y <= 1.0) {
-    float t = texture2D(uTag, vec2(tuv.x, 1.0 - tuv.y)).a * uTagAlpha;
-    col = mix(col, abs(vec3(1.0) - col), t * 0.82);
+  // the chrome is the mask: it is opaque everywhere except its canvas
+  // hole, so whatever the slide spills past the hole runs under it.
+  // it is REVEALED in the band the slide vacates as it shrinks, rather
+  // than cross-faded on top — fading a whole opaque UI through the
+  // artwork is exactly what reads as a separate step.
+  if (uHasChrome > 0.5 && uAssembly > 0.001) {
+    vec4 ch = texture2D(uChrome, vUv);
+    vec2 dOut = abs(vUv - uArtRect.xy) - uArtRect.zw * 0.5;
+    float wipe = smoothstep(0.0, 0.005, max(dOut.x, dOut.y));
+    col = mix(col, ch.rgb, ch.a * mix(uAssembly, wipe, uAsmWipe));
   }
 
   col *= vShade;
@@ -231,6 +258,9 @@ export class GlLayer {
     this.scene = new Transform();
     this.white = new Texture(gl);       // 1px placeholder for uMap/uTag
     this.items = [];
+    this.plate = [1, 1, 1];
+    this.chromeImg = null;
+    this.chromeUrl = null;
     this.ok = true;
   }
 
@@ -293,7 +323,10 @@ export class GlLayer {
       });
 
       const color = getComputedStyle(card).getPropertyValue('--mw-color').trim() || '#cccccc';
-      const tag = makeTagTexture(this.gl, card.dataset.title);
+      // a card carrying real artwork brings its own branding — only the
+      // placeholder cards get the baked corner tag
+      const img = card.querySelector('img');
+      const tag = makeTagTexture(this.gl, img ? '' : card.dataset.title);
       const pad = 20;
       const tagRect = [pad / cardW, 1 - (pad + tag.h) / cardH, tag.w / cardW, tag.h / cardH];
 
@@ -324,17 +357,49 @@ export class GlLayer {
           uTagRect: { value: tagRect },
           uSize: { value: [cardW, cardH] },
           uRadius: { value: radius },
+          uArtRect: { value: [0.5, 0.5, 1, 1] },
+          uPlate: { value: this.plate.slice() },
+          uChrome: { value: this.white },
+          uHasChrome: { value: 0 },
+          uAssembly: { value: 0 },
+          uAsmWipe: { value: 1 },
         },
       });
 
       const mesh = new Mesh(this.gl, { geometry, program });
       mesh.setParent(this.scene);
 
-      const img = card.querySelector('img');
       if (img) this.loadImage(program, img);
 
       return { mesh, program, card };
     });
+    this.applyChrome();
+  }
+
+  /* the UI chrome is one shared image for every card. the HTMLImageElement
+     outlives a context loss, so applyChrome() can re-upload it whenever
+     the cards are rebuilt. */
+  loadChrome(url, done) {
+    if (!url || this.chromeUrl === url) return;
+    this.chromeUrl = url;
+    const img = new Image();
+    img.onload = () => { this.chromeImg = img; this.applyChrome(); if (done) done(); };
+    img.onerror = () => console.warn('[mw-slider] UI chrome image failed to load:', url);
+    img.src = url;
+  }
+
+  applyChrome() {
+    if (!this.chromeImg || !this.ok || !this.items.length) return;
+    const tex = new Texture(this.gl, { image: this.chromeImg, generateMipmaps: false });
+    this.items.forEach((it) => {
+      it.program.uniforms.uChrome.value = tex;
+      it.program.uniforms.uHasChrome.value = 1;
+    });
+  }
+
+  setPlate(rgb) {
+    this.plate = rgb;
+    this.items.forEach((it) => { it.program.uniforms.uPlate.value = rgb.slice(); });
   }
 
   loadImage(program, img) {
@@ -364,7 +429,7 @@ export class GlLayer {
   }
 }
 
-function cssColor(str) {
+export function cssColor(str) {
   const c = document.createElement('canvas');
   c.width = c.height = 1;
   const ctx = c.getContext('2d');
