@@ -117,12 +117,15 @@ and never touches the tag's own styles. Add `data-webgl-pin` to anything else
 that should anchor to the open card — a close button at the card's top-left,
 for instance — instead of to the viewport.
 
-`data-webgl-pin` also takes a corner: `top-left`, `top-right`, `bottom-left`,
-`bottom-right` or `center` centres the element *on* that corner of the card,
-which otherwise needs a -50%/-50% transform stacked on the offsets. Nudge it
-off the corner with plain margins — `margin: 18px 0 0 -18px` sits it down and
-out — since margin is the one offset a visual editor exposes cleanly. A bare
-`data-webgl-pin` leaves the positioning entirely to your CSS.
+A close button authored inside the card needs no attribute beyond
+`data-webgl-close`: it is pinned to the open card automatically and the
+module writes no inline styles at all, so its own offsets apply as authored.
+
+`data-webgl-pin` optionally takes a corner — `top-left`, `top-right`,
+`bottom-left`, `bottom-right`, `center` — which centres the element *on* that
+corner, useful when a -50%/-50% transform is awkward to express. That does
+overwrite position/left/top/right/bottom/transform, so leave the value off
+whenever the design already places the element; margins still nudge it.
 
 Lifted elements keep their ancestors rebuilt as empty same-class shells,
 because Webflow writes nested styles as descendant selectors: without them a

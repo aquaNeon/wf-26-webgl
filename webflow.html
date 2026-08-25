@@ -52,10 +52,10 @@
 
   /* Authored inside the component, so there is one per card. The module
      lifts it onto the open card and fades it with the tag. */
+  /* No data-webgl-pin value, so the module writes nothing here and these
+     offsets resolve against the open card exactly as authored. */
   .webgl_close {
-    /* pinned to the card's top-left corner; margin nudges it off that corner */
-    margin: 18px 0 0 -18px;
-    z-index: 800;
+    position: absolute; top: 24px; left: -22px; z-index: 800;
     width: 46px; height: 46px; border-radius: 50%;
     border: 1px solid var(--hair); background: #fff; color: var(--ink);
     display: grid; place-items: center; cursor: pointer;
@@ -115,7 +115,7 @@
       <div class="webgl_card_inner_wrap">
         <img data-webgl-overlay alt="" src="${UI}" loading="eager" class="webgl_card_ui_overlay">
         <img data-webgl-image alt="" src="${ART}" loading="eager" class="webgl_card_inner_img">
-        <button type="button" data-webgl-close data-webgl-pin="top-left" class="webgl_close" aria-label="Close">
+        <button type="button" data-webgl-close class="webgl_close" aria-label="Close">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 2 L14 14 M14 2 L2 14"/></svg>
         </button>
         <div class="webgl_cards_tag">
