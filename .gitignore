@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+.vite/
+
+# local assistant / editor state
+.claude/
+.vscode/
+.idea/
+
+# env
+.env
+.env.*
+!.env.example
+
+# os + logs
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

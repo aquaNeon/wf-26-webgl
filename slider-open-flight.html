@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slider — open flight</title>
+<style>
+  :root {
+    --page-bg: #f7f6f3;
+    --ink: #101010;
+    --ink-soft: #6b6a66;
+    --hair: #dedcd6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--ink);
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* ============================================================
+     SLIDER  (namespace: mw-)
+     One clock drives everything timed. The only CSS transitions
+     left are hover states.
+     ============================================================ */
+
+  [data-mw="root"] {
+    position: relative;
+    width: 100%;
+    height: 100svh;
+    container-type: inline-size;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;
+
+    --mw-card-w: clamp(240px, 26cqw, 620px);
+    --mw-card-h: calc(var(--mw-card-w) * 2 / 3);
+    --mw-radius: 4px;
+    --mw-frame: #146ef5;   /* stand-in for the Webflow chrome */
+  }
+
+  [data-mw="head"] {
+    position: absolute;
+    top: clamp(24px, 6svh, 72px);
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+  [data-mw="head"] h1 {
+    margin: 0;
+    font-size: clamp(32px, 7cqw, 96px);
+    letter-spacing: -0.045em;
+    font-weight: 700;
+  }
+  [data-mw="head"] p { margin: 10px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+  [data-mw="stage"] {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: var(--mw-perspective, 2200px);
+    cursor: grab;
+    overflow: clip;
+  }
+  [data-mw="stage"][data-mw-dragging] { cursor: grabbing; }
+
+  [data-mw="backdrop"] {
+    position: absolute;
+    inset: 0;
+    background: var(--page-bg);
+    opacity: 0;
+    z-index: 500;
+    pointer-events: none;
+  }
+  [data-mw-open] [data-mw="backdrop"] { pointer-events: auto; }
+
+  [data-mw="card"] {
+    position: absolute;
+    transform-style: preserve-3d;
+    width: var(--mw-card-w);
+    height: var(--mw-card-h);
+    margin: 0; padding: 0; border: 0;
+    background: none;
+    transform-origin: 50% 50%;
+    cursor: pointer;
+    display: block;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    outline: none;
+  }
+  [data-mw="card"]:focus-visible [data-mw="media"] {
+    box-shadow: 0 0 0 2px var(--page-bg), 0 0 0 5px var(--ink);
+  }
+
+  /* the media block is the thing that becomes a WebGL plane later */
+  [data-mw="media"] {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--mw-radius);
+    background-color: var(--mw-color, #cccccc);
+    overflow: clip;
+    display: flex;
+    align-items: flex-end;
+    padding: 20px;
+  }
+  [data-mw="media"] img {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  /* the bend layer: a strip of cells standing in for a curved plane.
+     lives outside [data-mw="media"] because that has overflow: clip, which
+     would flatten the 3D and clip the cells as they swing out of the box. */
+  [data-mw="bend"] {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+    pointer-events: none;
+    display: none;
+  }
+  [data-mw="card"][data-mw-bending] [data-mw="bend"] { display: block; }
+  [data-mw="card"][data-mw-bending] [data-mw="media"] { visibility: hidden; }
+
+  [data-mw="cell"] {
+    position: absolute;
+    top: 50%; left: 50%;
+    background-repeat: no-repeat;
+    transform-origin: 50% 50%;
+    backface-visibility: hidden;
+  }
+
+  [data-mw="tag"] {
+    position: relative;
+    font-size: 11px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.82);
+    mix-blend-mode: difference;
+  }
+
+  /* ---- OPEN CHROME ----
+     Frame and tip live in stage space, not inside the card, so they are never
+     scaled, sheared or bent. They fade in once the flight has landed. */
+  [data-mw="frame"] {
+    position: absolute;
+    left: 50%; top: 50%;
+    z-index: 620;
+    border: 1px solid var(--mw-frame);
+    opacity: 0;
+    pointer-events: none;
+  }
+  [data-mw="frame"] i {
+    position: absolute;
+    width: 7px; height: 7px;
+    background: var(--page-bg);
+    border: 1px solid var(--mw-frame);
+  }
+  [data-mw="frame"] i:nth-child(1) { left: -4px;  top: -4px; }
+  [data-mw="frame"] i:nth-child(2) { right: -4px; top: -4px; }
+  [data-mw="frame"] i:nth-child(3) { right: -4px; bottom: -4px; }
+  [data-mw="frame"] i:nth-child(4) { left: -4px;  bottom: -4px; }
+
+  [data-mw="tip"] {
+    position: absolute;
+    z-index: 640;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 14px 9px 9px;
+    background: var(--page-bg);
+    border: 1px solid var(--hair);
+    border-radius: 5px;
+    box-shadow: 0 6px 22px rgba(16,16,16,.10);
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  [data-mw="swatch"] {
+    width: 30px; height: 30px;
+    border-radius: 3px;
+    background: var(--mw-color, #ccc);
+    flex: none;
+  }
+  [data-mw="tip"] b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+  [data-mw="tip"] a {
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  [data-mw="close"] {
+    position: absolute;
+    top: clamp(16px, 3svh, 34px);
+    right: clamp(16px, 3cqw, 34px);
+    z-index: 800;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--hair);
+    background: var(--page-bg);
+    color: var(--ink);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .3s ease;
+  }
+  [data-mw="close"]:hover { transform: rotate(90deg); }
+  [data-mw="close"] svg { width: 15px; height: 15px; }
+
+  [data-mw="counter"] {
+    position: absolute;
+    bottom: clamp(20px, 5svh, 48px);
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 20;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--ink-soft);
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- DEV TWEAK PANEL. delete this block and the one in the JS ---- */
+  #tweak {
+    position: fixed;
+    left: 16px; bottom: 16px;
+    z-index: 9999;
+    width: 236px;
+    padding: 14px 14px 10px;
+    background: rgba(247,246,243,.92);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    font-size: 11px;
+    display: none;
+  }
+  #tweak[data-open] { display: block; }
+  #tweak label { display: block; margin: 0 0 9px; color: var(--ink-soft); }
+  #tweak span { float: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #tweak input { width: 100%; margin: 3px 0 0; accent-color: var(--ink); }
+  #tweakBtn {
+    position: fixed;
+    left: 16px; bottom: 16px;
+    z-index: 9999;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    border: 1px solid var(--hair);
+    border-radius: 20px;
+    background: var(--page-bg);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  #tweak[data-open] + #tweakBtn { display: none; }
+  /* ---- /DEV TWEAK PANEL ---- */
+</style>
+</head>
+<body>
+
+<section
+  data-mw="root"
+  data-spacing="0.62"
+  data-skew-y="29.5"
+  data-perspective="2200"
+  data-push="0.14"
+  data-chase="0.34"
+  data-lag="0.72"
+  data-wave-amp="18"
+  data-wave-freq="0.8"
+  data-wave-tilt="3"
+  data-wave-turn="4"
+  data-wave-gain="1.6"
+  data-open-dur="900"
+  data-bend="88"
+  data-bend-bias="2.3"
+  data-bend-peak="0.42"
+  data-bend-shape="0.6"
+  data-bend-cols="24"
+  data-frame-gap="14"
+  data-friction="0.93"
+  data-lerp="0.11"
+  data-loop="true">
+
+  <div data-mw="head">
+    <h1>#MadeinWebflow</h1>
+    <p>Scroll, drag, or use arrow keys. Click a card to open it.</p>
+  </div>
+
+  <div data-mw="stage">
+    <div data-mw="backdrop"></div>
+
+    <!-- ---- CARDS. everything the open state needs is an attribute ---- -->
+    <button type="button" data-mw="card" style="--mw-color:#2f6b4f"
+            data-title="Clay" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Clay</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#4a4a4a"
+            data-title="Radiant" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Radiant</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#e8e4da"
+            data-title="Claude" data-by="Off-brand" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Claude</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#161c3d"
+            data-title="Trevor Noah" data-by="Off-brand" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Trevor Noah</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#b9e0cf"
+            data-title="Greenhouse" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Greenhouse</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#f0ead9"
+            data-title="Fauna Robotics" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Fauna Robotics</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#f04a23"
+            data-title="Aggregate" data-by="Made You Look" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Aggregate</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#7fa8d9"
+            data-title="Northbound" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Northbound</span></div>
+    </button>
+    <!-- ---- /CARDS ---- -->
+
+    <div data-mw="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+    <div data-mw="tip">
+      <span data-mw="swatch"></span>
+      <span>
+        <b data-mw="tip-title"></b>
+        <a data-mw="tip-by" href="#"></a>
+      </span>
+    </div>
+  </div>
+
+  <button type="button" data-mw="close" aria-label="Close">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      <path d="M2 2 L14 14 M14 2 L2 14"/>
+    </svg>
+  </button>
+
+  <div data-mw="counter"><span data-mw="index">01</span> / <span data-mw="total">08</span></div>
+</section>
+
+<div id="tweak"></div>
+<button id="tweakBtn" type="button">Tweak open</button>
+
+<script>
+(() => {
+  document.querySelectorAll('[data-mw="root"]').forEach(init);
+
+  function init(root) {
+    if (root.dataset.mwInit) return;
+    root.dataset.mwInit = 'true';
+
+    const stage     = root.querySelector('[data-mw="stage"]');
+    const backdrop  = root.querySelector('[data-mw="backdrop"]');
+    const frame     = root.querySelector('[data-mw="frame"]');
+    const tip       = root.querySelector('[data-mw="tip"]');
+    const tipSwatch = root.querySelector('[data-mw="swatch"]');
+    const tipTitle  = root.querySelector('[data-mw="tip-title"]');
+    const tipBy     = root.querySelector('[data-mw="tip-by"]');
+    const closeBtn  = root.querySelector('[data-mw="close"]');
+    const headEl    = root.querySelector('[data-mw="head"]');
+    const countEl   = root.querySelector('[data-mw="counter"]');
+    const indexEl   = root.querySelector('[data-mw="index"]');
+    const totalEl   = root.querySelector('[data-mw="total"]');
+    const cards     = Array.from(stage.querySelectorAll('[data-mw="card"]'));
+    const n = cards.length;
+    if (!n) return;
+
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const num = (k, d) => { const v = parseFloat(root.dataset[k]); return Number.isNaN(v) ? d : v; };
+
+    const cfg = {
+      spacing:  num('spacing', 0.62),      // fraction of card width between cards
+      skewY:    num('skewY', 29.5),        // THE angle, measured off the reference
+      persp:    num('perspective', 2200),
+      push:     num('push', 0.14),         // how far neighbours slide out on open
+      chase:    num('chase', 0.34),        // how fast a card tracks its slot
+      lag:      num('lag', 0.72),          // 0 = rigid row, 1 = edges barely keep up
+      waveAmp:  num('waveAmp', 18),
+      waveFreq: num('waveFreq', 0.8),
+      waveTilt: num('waveTilt', 3),
+      waveTurn: num('waveTurn', 4),
+      waveGain: num('waveGain', 1.6),
+
+      openDur:  num('openDur', 900),       // ms for the open and close flight
+      bend:     num('bend', 88),           // deg the trailing edge curls at peak
+      bendBias: num('bendBias', 2.3),      // >1 pushes the curl toward the trailing edge
+      bendPeak: num('bendPeak', 0.42),     // where in the flight the curl peaks, 0..1
+      bendShape:num('bendShape', 0.6),     // <1 widens the peak so the curve holds
+      cols:     Math.max(2, Math.round(num('bendCols', 24))),
+      frameGap: num('frameGap', 14),       // px the frame stands off the image
+
+      friction: num('friction', 0.93),
+      lerp:     reduced ? 1 : num('lerp', 0.11),
+      loop:     root.dataset.loop !== 'false',
+      visible:  5                          // cards each side before culling
+    };
+
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const lerp  = (a, b, t) => a + (b - a) * t;
+    const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+    /* ---------- state ---------- */
+    let current = 0, target = 0, velocity = 0, prevCurrent = 0, vSmooth = 0;
+    let hovered = -1, activeIndex = -1, isOpen = false;
+    let openT = 0, bendAmt = 0, flightDir = 1, activeSkew = 0, openScale = 1;
+    let flight = { on: false, from: 0, to: 0, span: 1, start: 0, dur: 1, rowFrom: null, rowTo: 0 };
+
+    let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
+    let cardW = 0, cardH = 0, stageW = 0, stageH = 0;
+
+    cards.forEach((c) => { c._op = 1; });
+    if (totalEl) totalEl.textContent = String(n).padStart(2, '0');
+
+    /* ---------- measure ---------- */
+    function measure() {
+      stage.style.setProperty('--mw-perspective', cfg.persp + 'px');
+      cardW = cards[0].offsetWidth;
+      cardH = cards[0].offsetHeight;
+      stageW = stage.clientWidth;
+      stageH = stage.clientHeight;
+
+      // no side panel any more, so the open card is simply centred and fills
+      // whatever the margin leaves. margin has to clear the frame and the tip.
+      const margin = clamp(stageW * 0.07, 28, 96) + cfg.frameGap;
+      openScale = Math.min((stageW - margin * 2) / cardW, (stageH - margin * 2) / cardH);
+
+      layoutChrome();
+      if (activeIndex >= 0) { buildBend(cards[activeIndex]); paintBend(cards[activeIndex]); }
+    }
+
+    // frame and tip sit in stage space at the card's landed size, so they stay
+    // crisp: no counter-scaling, no inherited skew, nothing to bend
+    function layoutChrome() {
+      const w = cardW * openScale, h = cardH * openScale, g = cfg.frameGap;
+      frame.style.width  = (w + g * 2) + 'px';
+      frame.style.height = (h + g * 2) + 'px';
+      frame.style.marginLeft = -(w / 2 + g) + 'px';
+      frame.style.marginTop  = -(h / 2 + g) + 'px';
+      tip.style.left = 'calc(50% + ' + (w / 2 - 14) + 'px)';
+      tip.style.top  = 'calc(50% + ' + (h / 2 - 14) + 'px)';
+    }
+
+    /* ---------- helpers ---------- */
+    function relOf(i) {
+      let rel = i - current;
+      if (cfg.loop) rel = ((rel + n / 2) % n + n) % n - n / 2;
+      return rel;
+    }
+
+    /* ---------- bend ----------
+       A single div cannot curve, so the card is subdivided into a strip of
+       cells and each cell is placed on a curved surface. Cell c sits at angle
+       theta on a cylinder of radius W/arc. This is exactly the per-vertex
+       displacement a shader would do, just with divs standing in for vertices,
+       so the WebGL port is a direct translation of applyBend. */
+
+    function buildBend(card) {
+      if (card._cells && card._cols === cfg.cols) return;
+      if (card._bendLayer) card._bendLayer.remove();
+      const layer = document.createElement('div');
+      layer.setAttribute('data-mw', 'bend');
+      const cells = [];
+      for (let c = 0; c < cfg.cols; c++) {
+        const cell = document.createElement('div');
+        cell.setAttribute('data-mw', 'cell');
+        layer.appendChild(cell);
+        cells.push(cell);
+      }
+      card.appendChild(layer);
+      card._bendLayer = layer;
+      card._cells = cells;
+      card._cols = cfg.cols;
+    }
+
+    // each cell shows its own window onto the media via background-position,
+    // the DOM equivalent of handing each cell its slice of UV space
+    function paintBend(card) {
+      const media = card.querySelector('[data-mw="media"]');
+      if (!media || !card._cells) return;
+      const img = media.querySelector('img');
+      const cs = getComputedStyle(media);
+      const src = img ? (img.currentSrc || img.src) : '';
+      const cols = card._cols, cw = cardW / cols, r = cs.borderRadius;
+
+      card._cells.forEach((cell, c) => {
+        // 1px of overlap hides the hairline seams between rotated cells
+        cell.style.width = (cw + 1) + 'px';
+        cell.style.height = cardH + 'px';
+        cell.style.marginLeft = (-(cw + 1) / 2) + 'px';
+        cell.style.marginTop = (-cardH / 2) + 'px';
+        cell.style.backgroundColor = cs.backgroundColor;
+        cell.style.backgroundImage = src ? 'url("' + src + '")' : 'none';
+        cell.style.backgroundSize = cardW + 'px ' + cardH + 'px';
+        cell.style.backgroundPosition = (-(c * cw - 0.5)) + 'px 0';
+        cell.style.borderRadius = c === 0 ? r + ' 0 0 ' + r
+                                : c === cols - 1 ? '0 ' + r + ' ' + r + ' 0'
+                                : '0';
+      });
+    }
+
+    /* Cloth, not a cylinder. A symmetric arc bulges both edges equally, which
+       reads as a tube. Real cloth is held at the leading edge and the trailing
+       edge lags and curls, so the curvature is biased along the card and flipped
+       with the direction of travel.
+
+       Tangent angle grows as t^bias from the leading edge, and positions come
+       from walking that tangent cell by cell. Integrating rather than solving a
+       circle keeps the surface's true length no matter how hard it curls, which
+       is what stops it looking like a stretching rubber sheet. */
+    function applyBend(card, amount, dir, skew) {
+      if (!card._cells) return;
+      const cols = card._cols;
+      const arc = cfg.bend * amount * Math.PI / 180;
+      const step = cardW / cols;
+      // dir > 0 means the card is travelling right, so its right edge leads and
+      // the left edge is the one left behind to curl
+      const leadRight = dir >= 0;
+
+      const xs = new Array(cols), zs = new Array(cols), ths = new Array(cols);
+      let wx = -cardW / 2, wz = 0;
+
+      for (let c = 0; c < cols; c++) {
+        const u = (c + 0.5) / cols;
+        const t = leadRight ? 1 - u : u;      // 0 at the leading edge
+        const th = arc * Math.pow(t, cfg.bendBias) * (leadRight ? -1 : 1);
+        ths[c] = th;
+        const dx = Math.cos(th) * step, dz = Math.sin(th) * step;
+        xs[c] = wx + dx / 2;
+        zs[c] = wz + dz / 2;
+        wx += dx; wz += dz;
+      }
+
+      // recentre so the curl pivots around the card instead of drifting off it
+      let mx = 0, mz = 0;
+      for (let c = 0; c < cols; c++) { mx += xs[c]; mz += zs[c]; }
+      mx /= cols; mz /= cols;
+
+      // The card frame is sheared, so the mesh inherits the shear and the curl
+      // reads off axis. Counter-skew the layer in proportion to how bent it is:
+      // at amount 0 the mesh matches the sheared media exactly (no pop on the
+      // handover), at full curl it sits square. skewY composes additively, so
+      // -skew here cancels the parent exactly.
+      card._bendLayer.style.transform = 'skewY(' + (-skew * amount).toFixed(3) + 'deg)';
+
+      card._cells.forEach((cell, c) => {
+        cell.style.transform =
+          'translate3d(' + (xs[c] - mx).toFixed(2) + 'px,0,' + (zs[c] - mz).toFixed(2) + 'px)' +
+          ' rotateY(' + (-ths[c] * 180 / Math.PI).toFixed(2) + 'deg)';
+      });
+    }
+
+    /* ---------- render ---------- */
+    function render() {
+      const spacingPx = cardW * cfg.spacing;
+      const o = openT;
+      const w = clamp(vSmooth * cfg.waveGain, -1, 1) * (1 - o);
+
+      // channel stagger: the card unshears early and hard, then settles into
+      // its final scale. one clock, three different readings of it.
+      const tSkew  = Math.pow(o, 0.55);
+      const tScale = Math.pow(o, 1.25);
+
+      for (let i = 0; i < n; i++) {
+        const card = cards[i];
+        const ideal = relOf(i);
+        const active = i === activeIndex;
+
+        // TRAILING. Each card chases its own slot instead of being placed
+        // rigidly. Cards further from centre chase more slowly, so a fast drag
+        // bends the row and it unwinds on release. Snap across the loop seam so
+        // a wrapping card does not fly through the middle of the stage.
+        if (card._rel === undefined || Math.abs(ideal - card._rel) > n / 2) card._rel = ideal;
+        const norm = clamp(Math.abs(ideal) / cfg.visible, 0, 1);
+        const chase = active ? 1 : cfg.chase * (1 - cfg.lag * norm);
+        card._rel += (ideal - card._rel) * (reduced ? 1 : chase);
+
+        const rel = card._rel;
+
+        // cull on the ideal slot, not the trailing one, so a hidden card keeps
+        // its lag state and does not pop when it comes back
+        if (Math.abs(ideal) > cfg.visible && !active) {
+          if (card.style.visibility !== 'hidden') card.style.visibility = 'hidden';
+          continue;
+        }
+        if (card.style.visibility === 'hidden') card.style.visibility = '';
+
+        let x, y, ry, rz, sk, s;
+
+        if (active) {
+          x  = rel * spacingPx * (1 - o);   // lands dead centre, so no cx offset
+          y  = 0;
+          ry = 0; rz = 0;
+          sk = cfg.skewY * (1 - tSkew);
+          s  = lerp(1, openScale, tScale);
+          activeSkew = sk;
+          // the corner tag would collide with the tip once landed
+          const tagEl = card.querySelector('[data-mw="tag"]');
+          if (tagEl) tagEl.style.opacity = (1 - clamp(o * 2, 0, 1)).toFixed(3);
+        } else {
+          // nearer neighbours clear the frame first
+          const oi = o === 0 ? 0 : Math.pow(o, 1 + Math.min(Math.abs(rel), 5) * 0.14);
+
+          // RIPPLE. A sine riding on `rel` means the crest travels through the
+          // row as it scrolls rather than sitting on fixed cards. Amplitude
+          // follows velocity, so it is invisible at rest, pronounced mid fling.
+          const phase = rel * cfg.waveFreq;
+          x  = rel * spacingPx + (activeIndex >= 0 ? Math.sign(rel || 1) * spacingPx * cfg.push * oi : 0);
+          y  = Math.sin(phase) * w * cfg.waveAmp;
+          ry = -w * cfg.waveTurn;
+          rz = Math.cos(phase) * w * cfg.waveTilt;
+          sk = cfg.skewY;
+          s  = 1 - Math.abs(w) * 0.02;
+          card._oi = oi;
+        }
+
+        // ORDER MATTERS. Rotating first and translating inside the rotated frame
+        // puts every card on one shared plane with one vanishing point, so the
+        // centre card is treated exactly like its neighbours. Translating first
+        // spins each card around its own centre, which makes the middle one read
+        // as sticking out toward the viewer.
+        // skewY goes AFTER the translate, so it shears each card about its own
+        // centre and leaves the row axis horizontal.
+        card.style.transform =
+          'rotateZ(' + rz.toFixed(2) + 'deg)' +
+          ' rotateY(' + ry.toFixed(2) + 'deg)' +
+          ' translate3d(' + x.toFixed(2) + 'px,' + y.toFixed(2) + 'px,0)' +
+          ' skewY(' + sk.toFixed(2) + 'deg)' +
+          ' scale3d(' + s.toFixed(4) + ',' + s.toFixed(4) + ',' + s.toFixed(4) + ')';
+
+        let wanted = 1;
+        if (activeIndex >= 0) wanted = active ? 1 : lerp(1, 0.08, card._oi || 0);
+        else if (hovered >= 0 && hovered !== i) wanted = 0.28;
+
+        card._op = reduced ? wanted : lerp(card._op, wanted, 0.16);
+        card.style.opacity = card._op.toFixed(3);
+
+        // Left overlaps right, matching the reference. Monotonic in rel either
+        // way, so the centre card gets no special treatment.
+        card.style.zIndex = active ? 600 : String(Math.round(400 - rel * 10));
+        card.style.pointerEvents = (activeIndex >= 0 && !active) ? 'none' : 'auto';
+      }
+
+      backdrop.style.opacity = (o * 0.92).toFixed(3);
+      headEl.style.opacity  = (1 - o).toFixed(3);
+      countEl.style.opacity = (1 - o).toFixed(3);
+
+      // chrome arrives after the flight has landed: frame first, tip behind it
+      const fo = clamp((o - 0.68) / 0.32, 0, 1);
+      const to = clamp((o - 0.80) / 0.20, 0, 1);
+      frame.style.opacity = fo.toFixed(3);
+      tip.style.opacity = to.toFixed(3);
+      tip.style.transform = 'translate(-100%,-100%) translateY(' + ((1 - to) * 8).toFixed(2) + 'px)';
+      tip.style.pointerEvents = to > 0.6 ? 'auto' : 'none';
+
+      const cb = clamp((o - 0.45) / 0.4, 0, 1);
+      closeBtn.style.opacity = cb.toFixed(3);
+      closeBtn.style.pointerEvents = cb > 0.5 ? 'auto' : 'none';
+
+      if (activeIndex >= 0 && cfg.bend !== 0 && !reduced) {
+        applyBend(cards[activeIndex],
+                  Math.pow(clamp(bendAmt, 0, 1), cfg.bendShape),
+                  flightDir, activeSkew);
+      }
+    }
+
+    /* ---------- loop ---------- */
+    function tick() {
+      let flying = false;
+
+      if (flight.on) {
+        const p = clamp((performance.now() - flight.start) / flight.dur, 0, 1);
+        const e = easeInOut(p);
+        openT = flight.from + (flight.to - flight.from) * e;
+
+        // the bend rides RAW time, not the eased position, so the peak lands
+        // where bendPeak says it does. scaled by span so an interrupted flight
+        // curls proportionally instead of going all the way over.
+        bendAmt = Math.sin(Math.PI * Math.pow(p, cfg.bendK)) * flight.span;
+
+        // the row travels on the same clock as the card. previously it lerped
+        // at cfg.lerp while the card tweened over openDur, so the flight was a
+        // product of two timings and read soft at the end.
+        if (flight.rowFrom !== null) {
+          current = flight.rowFrom + (flight.rowTo - flight.rowFrom) * e;
+          flying = true;
+        }
+        if (p >= 1) {
+          flight.on = false;
+          openT = flight.to;
+          bendAmt = 0;
+          if (flying) current = flight.rowTo;
+        }
+      } else {
+        bendAmt = 0;
+      }
+
+      if (!dragging && activeIndex < 0) {
+        if (Math.abs(velocity) > 0.0015) {
+          target += velocity;
+          velocity *= cfg.friction;
+        } else {
+          velocity = 0;
+          target += (Math.round(target) - target) * (reduced ? 1 : 0.16);
+        }
+      }
+      if (!cfg.loop) target = clamp(target, 0, n - 1);
+      if (!flying) current += (target - current) * cfg.lerp;
+
+      // measured, not predicted: actual on screen movement per frame, so the
+      // wave stays in sync with wheel steps, drags and inertia alike
+      const frameVel = current - prevCurrent;
+      prevCurrent = current;
+      vSmooth += (frameVel - vSmooth) * 0.25;
+
+      if (!isOpen && activeIndex >= 0 && openT < 0.002) {
+        openT = 0;
+        cards[activeIndex].removeAttribute('data-mw-bending');
+        cards[activeIndex].style.willChange = '';
+        activeIndex = -1;
+      }
+
+      const idx = ((Math.round(current) % n) + n) % n;
+      if (indexEl) indexEl.textContent = String(idx + 1).padStart(2, '0');
+
+      render();
+      requestAnimationFrame(tick);
+    }
+
+    /* ---------- open / close ---------- */
+    function startFlight(to, rowFrom, rowTo) {
+      const from = openT;
+      flight = {
+        on: true, from, to,
+        span: Math.abs(to - from),
+        start: performance.now(),
+        dur: reduced ? 1 : cfg.openDur * Math.max(0.35, Math.abs(to - from)),
+        rowFrom, rowTo
+      };
+    }
+
+    function openCard(i) {
+      if (isOpen || i < 0) return;
+      isOpen = true;
+      activeIndex = i;
+      hovered = -1;
+      velocity = 0;
+
+      target = current + relOf(i);
+      // sampled once at the start so the curl does not flip mid flight. the
+      // destination is now dead centre, so travel is just the opposite of
+      // wherever the card is sitting.
+      flightDir = -Math.sign(cards[i]._rel) || 1;
+      startFlight(1, current, target);
+
+      if (cfg.bend !== 0 && !reduced) {
+        buildBend(cards[i]);
+        paintBend(cards[i]);
+        applyBend(cards[i], 0, flightDir, cfg.skewY);
+        cards[i].setAttribute('data-mw-bending', '');
+      }
+      cards[i].style.willChange = 'transform, opacity';
+
+      const d = cards[i].dataset;
+      tipSwatch.style.background = getComputedStyle(cards[i]).getPropertyValue('--mw-color');
+      tipTitle.textContent = d.title || '';
+      tipBy.textContent = d.by ? 'by ' + d.by : '';
+      tipBy.href = d.href || '#';
+      tipBy.style.display = d.by ? '' : 'none';
+
+      root.setAttribute('data-mw-open', '');
+      closeBtn.focus({ preventScroll: true });
+    }
+
+    function closeCard() {
+      if (!isOpen) return;
+      isOpen = false;
+      // the return flight travels the other way, so the edges swap
+      flightDir = Math.sign(cards[activeIndex]._rel) || 1;
+      startFlight(0, null, 0);
+      root.removeAttribute('data-mw-open');
+      cards[activeIndex].focus({ preventScroll: true });
+    }
+
+    /* ---------- input ---------- */
+    stage.addEventListener('wheel', (e) => {
+      if (isOpen) return;
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (Math.abs(delta) < 4) return;
+      e.preventDefault();
+      const now = performance.now();
+      if (now < wheelLock) return;
+      wheelLock = now + 210;
+      velocity = 0;
+      target = Math.round(current) + Math.sign(delta);
+    }, { passive: false });
+
+    // NOTE: no setPointerCapture. Capturing on the stage retargets the
+    // subsequent `click` to the stage instead of the card, which silently kills
+    // the open interaction. Window level move/up gives the same out of bounds
+    // drag behaviour without touching click targeting.
+    stage.addEventListener('pointerdown', (e) => {
+      if (isOpen || e.button !== 0) return;
+      const hit = e.target.closest('[data-mw="card"]');
+      downCard = hit ? cards.indexOf(hit) : -1;
+      dragging = true;
+      pointerId = e.pointerId;
+      lastX = e.clientX;
+      travel = 0;
+      velocity = 0;
+      hovered = -1;
+      stage.setAttribute('data-mw-dragging', '');
+      addEventListener('pointermove', onMove);
+      addEventListener('pointerup', onUp);
+      addEventListener('pointercancel', onUp);
+    });
+
+    function onMove(e) {
+      if (!dragging || e.pointerId !== pointerId) return;
+      const dx = e.clientX - lastX;
+      lastX = e.clientX;
+      travel += Math.abs(dx);
+      const step = dx / (cardW * cfg.spacing);
+      target -= step;
+      velocity = clamp(velocity * 0.55 + (-step) * 0.45, -0.34, 0.34);
+    }
+
+    function onUp(e) {
+      if (e.pointerId !== pointerId) return;
+      const card = downCard, tapped = travel < 6;
+      dragging = false;
+      pointerId = null;
+      downCard = -1;
+      stage.removeAttribute('data-mw-dragging');
+      removeEventListener('pointermove', onMove);
+      removeEventListener('pointerup', onUp);
+      removeEventListener('pointercancel', onUp);
+
+      // touch never fires a click reliably here, so open from pointerup and let
+      // the click handler bail out via the same travel guard
+      if (tapped && card >= 0 && !isOpen && e.type === 'pointerup' && e.pointerType !== 'mouse') {
+        openCard(card);
+      }
+    }
+
+    cards.forEach((card, i) => {
+      card.addEventListener('pointerenter', () => { if (!dragging && !isOpen) hovered = i; });
+      card.addEventListener('pointerleave', () => { if (hovered === i) hovered = -1; });
+      card.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (travel > 6 || isOpen) return;
+        openCard(i);
+      });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(i); }
+      });
+    });
+
+    backdrop.addEventListener('click', closeCard);
+    closeBtn.addEventListener('click', closeCard);
+
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isOpen) { closeCard(); return; }
+      if (isOpen) return;
+      if (e.key === 'ArrowRight') { velocity = 0; target = Math.round(current) + 1; }
+      if (e.key === 'ArrowLeft')  { velocity = 0; target = Math.round(current) - 1; }
+    });
+
+    addEventListener('resize', measure);
+
+    // bendPeak is a position, not a rate. sin(pi * p^k) peaks where p^k = 0.5,
+    // so k = ln(0.5)/ln(peak) puts the crest exactly where you asked for it.
+    cfg.bendK = Math.log(0.5) / Math.log(clamp(cfg.bendPeak, 0.05, 0.95));
+
+    root._mw = {
+      cfg,
+      set(key, value) {
+        cfg[key] = value;
+        if (key === 'bendPeak') cfg.bendK = Math.log(0.5) / Math.log(clamp(value, 0.05, 0.95));
+        if (key === 'frameGap') measure();
+        if (key === 'cols') {
+          cards.forEach((c) => { c._cells = null; c._cols = 0; });
+          if (activeIndex >= 0) { buildBend(cards[activeIndex]); paintBend(cards[activeIndex]); }
+        }
+      }
+    };
+
+    measure();
+    requestAnimationFrame(tick);
+  }
+})();
+
+/* ---- DEV TWEAK PANEL. delete this whole block for production ---- */
+(() => {
+  const root = document.querySelector('[data-mw="root"]');
+  const box = document.getElementById('tweak');
+  const btn = document.getElementById('tweakBtn');
+  if (!root || !box) return;
+
+  const knobs = [
+    ['openDur',   300, 2000, 10, 'flight duration (ms)'],
+    ['bend',        0,  180,  1, 'curl angle'],
+    ['bendPeak',  0.1,  0.9, 0.01, 'curl peaks at'],
+    ['bendBias',    1,    5, 0.1, 'curl bias to edge'],
+    ['bendShape', 0.2,  2.5, 0.05, 'curl hold'],
+    ['cols',        4,   48,  1, 'mesh cells'],
+    ['frameGap',    0,   48,  1, 'frame gap'],
+    ['push',        0,  0.6, 0.01, 'neighbour push'],
+    ['spacing',   0.2,  1.2, 0.01, 'card spacing'],
+    ['skewY',     -45,   45, 0.5, 'skew']
+  ];
+
+  box.innerHTML = knobs.map(([k, min, max, step, label]) =>
+    '<label>' + label + '<span data-out="' + k + '"></span>' +
+    '<input type="range" data-k="' + k + '" min="' + min + '" max="' + max + '" step="' + step + '"></label>'
+  ).join('') +
+  '<button id="tweakClose" type="button" style="width:100%;margin-top:4px;padding:6px;font:inherit;font-size:11px;border:1px solid var(--hair);border-radius:4px;background:none;color:var(--ink-soft);cursor:pointer">Close</button>';
+
+  const sync = () => box.querySelectorAll('input').forEach((el) => {
+    const k = el.dataset.k;
+    el.value = root._mw.cfg[k];
+    box.querySelector('[data-out="' + k + '"]').textContent = root._mw.cfg[k];
+  });
+
+  box.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el.dataset.k) return;
+    const v = parseFloat(el.value);
+    root._mw.set(el.dataset.k, el.dataset.k === 'cols' ? Math.round(v) : v);
+    box.querySelector('[data-out="' + el.dataset.k + '"]').textContent = v;
+  });
+
+  btn.addEventListener('click', () => { sync(); box.setAttribute('data-open', ''); });
+  box.addEventListener('click', (e) => {
+    if (e.target.id === 'tweakClose') box.removeAttribute('data-open');
+  });
+})();
+/* ---- /DEV TWEAK PANEL ---- */
+</script>
+
+</body>
+</html>

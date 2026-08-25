@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slider — cloth flight (OGL)</title>
+<style>
+  :root {
+    --page-bg: #f7f6f3;
+    --ink: #101010;
+    --ink-soft: #6b6a66;
+    --hair: #dedcd6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--ink);
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  [data-mw="root"] {
+    position: relative;
+    width: 100%;
+    height: 100svh;
+    container-type: inline-size;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;
+
+    --mw-card-w: clamp(240px, 26cqw, 620px);
+    --mw-card-h: calc(var(--mw-card-w) * 2 / 3);
+    --mw-radius: 4px;
+    --mw-frame: #146ef5;
+  }
+
+  [data-mw="head"] {
+    position: absolute;
+    top: clamp(24px, 6svh, 72px);
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 20;
+    pointer-events: none;
+  }
+  [data-mw="head"] h1 {
+    margin: 0;
+    font-size: clamp(32px, 7cqw, 96px);
+    letter-spacing: -0.045em;
+    font-weight: 700;
+  }
+  [data-mw="head"] p { margin: 10px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+  [data-mw="stage"] {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: var(--mw-perspective, 2200px);
+    cursor: grab;
+    overflow: clip;
+  }
+  [data-mw="stage"][data-mw-dragging] { cursor: grabbing; }
+
+  [data-mw="backdrop"] {
+    position: absolute;
+    inset: 0;
+    background: var(--page-bg);
+    opacity: 0;
+    z-index: 500;
+    pointer-events: none;
+  }
+  [data-mw-open] [data-mw="backdrop"] { pointer-events: auto; }
+
+  [data-mw="card"] {
+    position: absolute;
+    transform-style: preserve-3d;
+    width: var(--mw-card-w);
+    height: var(--mw-card-h);
+    margin: 0; padding: 0; border: 0;
+    background: none;
+    transform-origin: 50% 50%;
+    cursor: pointer;
+    display: block;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    outline: none;
+  }
+  /* the GL layer hides the media, so the ring has to live on the button */
+  [data-mw="card"]:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
+  }
+
+  [data-mw="media"] {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--mw-radius);
+    background-color: var(--mw-color, #cccccc);
+    overflow: clip;
+    display: flex;
+    align-items: flex-end;
+    padding: 20px;
+  }
+  [data-mw="media"] img {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  [data-mw="tag"] {
+    position: relative;
+    font-size: 11px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.82);
+    mix-blend-mode: difference;
+  }
+
+  [data-mw="frame"] {
+    position: absolute;
+    left: 50%; top: 50%;
+    z-index: 620;
+    border: 1px solid var(--mw-frame);
+    opacity: 0;
+    pointer-events: none;
+  }
+  [data-mw="frame"] i {
+    position: absolute;
+    width: 7px; height: 7px;
+    background: var(--page-bg);
+    border: 1px solid var(--mw-frame);
+  }
+  [data-mw="frame"] i:nth-child(1) { left: -4px;  top: -4px; }
+  [data-mw="frame"] i:nth-child(2) { right: -4px; top: -4px; }
+  [data-mw="frame"] i:nth-child(3) { right: -4px; bottom: -4px; }
+  [data-mw="frame"] i:nth-child(4) { left: -4px;  bottom: -4px; }
+
+  [data-mw="tip"] {
+    position: absolute;
+    z-index: 640;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 14px 9px 9px;
+    background: var(--page-bg);
+    border: 1px solid var(--hair);
+    border-radius: 5px;
+    box-shadow: 0 6px 22px rgba(16,16,16,.10);
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  [data-mw="swatch"] {
+    width: 30px; height: 30px;
+    border-radius: 3px;
+    background: var(--mw-color, #ccc);
+    flex: none;
+  }
+  [data-mw="tip"] b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+  [data-mw="tip"] a {
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  [data-mw="close"] {
+    position: absolute;
+    top: clamp(16px, 3svh, 34px);
+    right: clamp(16px, 3cqw, 34px);
+    z-index: 800;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid var(--hair);
+    background: var(--page-bg);
+    color: var(--ink);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .3s ease;
+  }
+  [data-mw="close"]:hover { transform: rotate(90deg); }
+  [data-mw="close"] svg { width: 15px; height: 15px; }
+
+  [data-mw="counter"] {
+    position: absolute;
+    bottom: clamp(20px, 5svh, 48px);
+    left: 0; right: 0;
+    text-align: center;
+    z-index: 20;
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--ink-soft);
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- DEV TWEAK PANEL ---- */
+  #tweak {
+    position: fixed;
+    left: 16px; bottom: 16px;
+    z-index: 9999;
+    width: 236px;
+    max-height: 78vh;
+    overflow-y: auto;
+    padding: 14px 14px 10px;
+    background: rgba(247,246,243,.92);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    font-size: 11px;
+    display: none;
+  }
+  #tweak[data-open] { display: block; }
+  #tweak label { display: block; margin: 0 0 9px; color: var(--ink-soft); }
+  #tweak span { float: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+  #tweak input { width: 100%; margin: 3px 0 0; accent-color: var(--ink); }
+  #tweakBtn {
+    position: fixed;
+    left: 16px; bottom: 16px;
+    z-index: 9999;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    border: 1px solid var(--hair);
+    border-radius: 20px;
+    background: var(--page-bg);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  #tweak[data-open] + #tweakBtn { display: none; }
+  /* ---- /DEV TWEAK PANEL ---- */
+</style>
+</head>
+<body>
+
+<section
+  data-mw="root"
+  data-spacing="0.62"
+  data-skew-y="29.5"
+  data-perspective="2200"
+  data-push="0.14"
+  data-chase="0.34"
+  data-lag="0.72"
+  data-wave-amp="18"
+  data-wave-freq="0.8"
+  data-wave-tilt="3"
+  data-wave-turn="4"
+  data-wave-gain="1.6"
+  data-spring-k="58"
+  data-open-z="90"
+  data-nodes="24"
+  data-grip="1200"
+  data-grip-pow="2.6"
+  data-grip-base="0.12"
+  data-drag="0.6"
+  data-fold-pow="2.0"
+  data-ripple="0.45"
+  data-damp="0"
+  data-settle="1.05"
+  data-spring-d="13.5"
+  data-iters="2"
+  data-bend-stiff="0.12"
+  data-soft-amp="0.16"
+  data-shade="1.0"
+  data-frame-gap="14"
+  data-friction="0.93"
+  data-lerp="0.11"
+  data-checker="true"
+  data-loop="true">
+
+  <div data-mw="head">
+    <h1>#MadeinWebflow</h1>
+    <p>Scroll, drag, or use arrow keys. Click a card to open it.</p>
+  </div>
+
+  <div data-mw="stage">
+    <div data-mw="backdrop"></div>
+
+    <button type="button" data-mw="card" style="--mw-color:#2f6b4f"
+            data-title="Clay" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Clay</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#4a4a4a"
+            data-title="Radiant" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Radiant</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#e8e4da"
+            data-title="Claude" data-by="Off-brand" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Claude</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#161c3d"
+            data-title="Trevor Noah" data-by="Off-brand" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Trevor Noah</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#b9e0cf"
+            data-title="Greenhouse" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Greenhouse</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#f0ead9"
+            data-title="Fauna Robotics" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Fauna Robotics</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#f04a23"
+            data-title="Aggregate" data-by="Made You Look" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Aggregate</span></div>
+    </button>
+
+    <button type="button" data-mw="card" style="--mw-color:#7fa8d9"
+            data-title="Northbound" data-by="N4" data-href="#">
+      <div data-mw="media"><span data-mw="tag">Northbound</span></div>
+    </button>
+
+    <div data-mw="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+    <div data-mw="tip">
+      <span data-mw="swatch"></span>
+      <span>
+        <b data-mw="tip-title"></b>
+        <a data-mw="tip-by" href="#"></a>
+      </span>
+    </div>
+  </div>
+
+  <button type="button" data-mw="close" aria-label="Close">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      <path d="M2 2 L14 14 M14 2 L2 14"/>
+    </svg>
+  </button>
+
+  <div data-mw="counter"><span data-mw="index">01</span> / <span data-mw="total">08</span></div>
+</section>
+
+<script type="module" src="/src/main.js"></script>
+
+</body>
+</html>

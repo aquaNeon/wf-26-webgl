@@ -1,0 +1,375 @@
+/* ============================================================
+   gl.js — OGL render layer for the slider
+
+   One transparent canvas per slider instance, sized to the stage.
+   Camera sits at z = the CSS perspective distance with a fov that
+   makes 1 GL unit = 1 CSS px on the z=0 plane, so translateZ in the
+   sim matches what translateZ would have done in CSS.
+
+   Each card is one Plane with widthSegments = nodes - 1: one vertex
+   column per chain node. Columns are translated by the node offsets
+   (uniform vec3 array) — a ruled surface between simulated slices,
+   so arc length survives from the sim untouched and the fold is
+   smooth at any curl. The rigid part of the card transform
+   (rotateZ · rotateY · translate · skewY · scale, exactly the CSS
+   order from the prototype) is a mat4 uniform built on the CPU.
+
+   The corner tag is baked into a small canvas texture and
+   difference-blended in the fragment shader, so it occludes
+   correctly between overlapping cards and rides the material.
+   ============================================================ */
+
+import { Renderer, Camera, Program, Mesh, Plane, Texture, Transform } from 'ogl';
+
+export const MAX_NODES = 32;
+
+/* ---------- minimal column-major mat4 helpers ----------
+   CSS composes y-down; GL is y-up. Conversion baked into the
+   factories: rotateZ and skewY flip sign, translate flips y. */
+
+function multiply(out, a, b) {
+  const r = new Float32Array(16);
+  for (let c = 0; c < 4; c++) {
+    for (let ro = 0; ro < 4; ro++) {
+      r[c * 4 + ro] =
+        a[ro] * b[c * 4] + a[4 + ro] * b[c * 4 + 1] +
+        a[8 + ro] * b[c * 4 + 2] + a[12 + ro] * b[c * 4 + 3];
+    }
+  }
+  out.set(r);
+  return out;
+}
+
+export function composeCardMatrix(out, cssRz, cssRy, x, y, z, cssSkewY, s) {
+  const rz = -cssRz * Math.PI / 180;
+  const ry = cssRy * Math.PI / 180;
+  const k = -Math.tan(cssSkewY * Math.PI / 180);
+  const cz = Math.cos(rz), sz = Math.sin(rz);
+  const cy = Math.cos(ry), sy = Math.sin(ry);
+
+  const RZ = [cz, sz, 0, 0, -sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const RY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
+  const T = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, -y, z, 1];
+  const K = [1, k, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const S = [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1];
+
+  // CSS transform list applies right-to-left: M = Rz · Ry · T · K · S
+  out.set(RZ);
+  multiply(out, out, RY);
+  multiply(out, out, T);
+  multiply(out, out, K);
+  multiply(out, out, S);
+  return out;
+}
+
+export function transformPoint(m, x, y, out) {
+  out[0] = m[0] * x + m[4] * y + m[12];
+  out[1] = m[1] * x + m[5] * y + m[13];
+  out[2] = m[2] * x + m[6] * y + m[14];
+  return out;
+}
+
+/* ---------- shaders ---------- */
+
+const VERT = /* glsl */ `
+attribute vec3 position;
+attribute vec2 uv;
+
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 uModel;
+uniform vec3 uNodes[${MAX_NODES}];   // dx, dz, shade — stage space
+uniform float uNodeCount;
+
+varying vec2 vUv;
+varying float vShade;
+
+void main() {
+  vUv = uv;
+
+  float f = uv.x * (uNodeCount - 1.0);
+  float fl = floor(f);
+  float ft = f - fl;
+  int i0 = int(fl);
+  int i1 = int(min(fl + 1.0, uNodeCount - 1.0));
+  vec3 a = uNodes[i0];
+  vec3 b = uNodes[i1];
+  vec3 nd = mix(a, b, ft);
+
+  vec4 world = uModel * vec4(position.xy, 0.0, 1.0);
+  world.x += nd.x;
+  world.z += nd.y;
+  vShade = nd.z;
+
+  gl_Position = projectionMatrix * viewMatrix * world;
+}
+`;
+
+const FRAG = /* glsl */ `
+precision highp float;
+
+uniform vec3 uColor;
+uniform float uAlpha;
+uniform float uChecker;
+uniform float uHasImage;
+uniform sampler2D uMap;
+uniform sampler2D uTag;
+uniform float uTagAlpha;
+uniform vec4 uTagRect;       // x, y, w, h of the tag in uv space
+uniform vec2 uSize;          // card w/h in px, for the corner sdf
+uniform float uRadius;
+
+varying vec2 vUv;
+varying float vShade;
+
+void main() {
+  vec2 p = (vUv - 0.5) * uSize;
+  vec2 q = abs(p) - (uSize * 0.5 - uRadius);
+  float d = length(max(q, 0.0)) - uRadius;
+  float edge = 1.0 - smoothstep(-1.0, 0.5, d);
+  if (edge <= 0.001) discard;
+
+  vec3 col = uColor;
+  if (uHasImage > 0.5) {
+    col = texture2D(uMap, vUv).rgb;
+  }
+
+  // debug checkerboard so the material reads before real images exist
+  if (uChecker > 0.5) {
+    vec2 c = floor(vUv * vec2(12.0, 8.0));
+    float ck = mod(c.x + c.y, 2.0);
+    col = mix(col * 0.82, mix(col, vec3(1.0), 0.18), ck);
+  }
+
+  // corner tag, difference-blended like the DOM version's
+  // mix-blend-mode. it lives on the surface, so it folds too.
+  vec2 tuv = (vec2(vUv.x, 1.0 - vUv.y) - uTagRect.xy) / uTagRect.zw;
+  if (tuv.x >= 0.0 && tuv.x <= 1.0 && tuv.y >= 0.0 && tuv.y <= 1.0) {
+    float t = texture2D(uTag, vec2(tuv.x, 1.0 - tuv.y)).a * uTagAlpha;
+    col = mix(col, abs(vec3(1.0) - col), t * 0.82);
+  }
+
+  col *= vShade;
+  gl_FragColor = vec4(col, uAlpha * edge);
+}
+`;
+
+/* ---------- tag texture ---------- */
+
+function makeTagTexture(gl, text) {
+  const scale = 3;                       // survives the open zoom
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const font = `600 ${11 * scale}px Inter, "Helvetica Neue", Arial, sans-serif`;
+  ctx.font = font;
+  const label = (text || '').toUpperCase();
+  const ls = 0.09 * 11 * scale;
+  let w = 0;
+  for (const ch of label) w += ctx.measureText(ch).width + ls;
+  c.width = Math.max(2, Math.ceil(w));
+  c.height = Math.ceil(15 * scale);
+  ctx.font = font;
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  let x = 0;
+  for (const ch of label) {
+    ctx.fillText(ch, x, c.height / 2);
+    x += ctx.measureText(ch).width + ls;
+  }
+  const tex = new Texture(gl, { image: c, generateMipmaps: false });
+  return { tex, w: c.width / scale, h: c.height / scale };
+}
+
+/* ---------- layer ---------- */
+
+export class GlLayer {
+  constructor(stage, persp) {
+    this.stage = stage;
+    this.persp = persp;
+    this.ok = false;
+
+    try {
+      this.renderer = new Renderer({ alpha: true, antialias: true, dpr: Math.min(2, window.devicePixelRatio || 1) });
+    } catch (e) {
+      console.warn('[mw-slider] WebGL unavailable, falling back to DOM', e);
+      return;
+    }
+    const gl = this.gl = this.renderer.gl;
+
+    // bail on software renderers, same gate as the shader modules
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    if (dbg) {
+      const r = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '';
+      if (/swiftshader|llvmpipe|software/i.test(r)) {
+        console.warn('[mw-slider] software GL renderer, falling back to DOM');
+        this.dispose();
+        return;
+      }
+    }
+
+    gl.clearColor(0, 0, 0, 0);
+    const cv = gl.canvas;
+    cv.style.cssText = 'position:absolute;inset:0;z-index:550;pointer-events:none;';
+    stage.appendChild(cv);
+
+    // a context can go at any time — GPU driver reset, laptop sleep, a
+    // backgrounded tab being reclaimed. without this the slider is blank
+    // for the rest of the session. preventDefault() is what makes the
+    // browser willing to hand a restored context back.
+    this.onLost = null;
+    this.onRestored = null;
+    cv.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.ok = false;
+      if (this.onLost) this.onLost();
+    });
+    cv.addEventListener('webglcontextrestored', () => {
+      if (this.onRestored) this.onRestored();
+    });
+
+    this.camera = new Camera(gl);
+    this.scene = new Transform();
+    this.white = new Texture(gl);       // 1px placeholder for uMap/uTag
+    this.items = [];
+    this.ok = true;
+  }
+
+  /* after a context restore the SAME gl object is live again, but every
+     object made from it is dead and OGL's state cache still describes the
+     old context. re-seed the cache (mirrors Renderer's constructor) and
+     let buildCards recreate the programs, geometries and textures. */
+  resetGlState() {
+    const gl = this.gl;
+    const s = (this.renderer.state = {});
+    s.blendFunc = { src: gl.ONE, dst: gl.ZERO };
+    s.blendEquation = { modeRGB: gl.FUNC_ADD };
+    s.cullFace = false;
+    s.frontFace = gl.CCW;
+    s.depthMask = true;
+    s.depthFunc = gl.LEQUAL;
+    s.premultiplyAlpha = false;
+    s.flipY = false;
+    s.unpackAlignment = 4;
+    s.framebuffer = null;
+    s.viewport = { x: 0, y: 0, width: null, height: null };
+    s.textureUnits = [];
+    s.activeTextureUnit = 0;
+    s.boundBuffer = null;
+    s.uniformLocations = new Map();
+    s.currentProgram = null;
+    gl.clearColor(0, 0, 0, 0);
+    this.white = new Texture(gl);
+    // unparent the dead meshes FIRST — left in the scene they keep being
+    // drawn from destroyed programs and buffers, which is a GL error per
+    // mesh per frame even though the rebuilt ones look correct
+    this.items.forEach((it) => this.scene.removeChild(it.mesh));
+    this.items = [];
+    this.ok = !gl.isContextLost();
+    return this.ok;
+  }
+
+  resize(w, h, persp) {
+    if (!this.ok) return;
+    this.persp = persp;
+    this.renderer.setSize(w, h);
+    this.camera.perspective({
+      fov: 2 * Math.atan(h / 2 / persp) * 180 / Math.PI,
+      aspect: w / h,
+      near: Math.max(1, persp - 1500),
+      far: persp + 3000,
+    });
+    this.camera.position.z = persp;
+  }
+
+  /* one mesh per card. geometry column count = node count, rebuilt
+     when the node slider moves. */
+  buildCards(cards, nodeCount, cardW, cardH, radius) {
+    if (!this.ok) return;
+    this.items.forEach((it) => this.scene.removeChild(it.mesh));
+    this.items = cards.map((card) => {
+      const geometry = new Plane(this.gl, {
+        width: cardW, height: cardH,
+        widthSegments: nodeCount - 1, heightSegments: 1,
+      });
+
+      const color = getComputedStyle(card).getPropertyValue('--mw-color').trim() || '#cccccc';
+      const tag = makeTagTexture(this.gl, card.dataset.title);
+      const pad = 20;
+      const tagRect = [pad / cardW, 1 - (pad + tag.h) / cardH, tag.w / cardW, tag.h / cardH];
+
+      const program = new Program(this.gl, {
+        vertex: VERT, fragment: FRAG,
+        // painter's algorithm, like the DOM prototype's z-index. a depth
+        // buffer is wrong here twice over: fold depth routinely exceeds
+        // any per-slot z gap (hard drags make planes cut through each
+        // other), and translucent cards writing depth punch holes in the
+        // stack. renderOrder — sorted by each card's real z every frame —
+        // owns the layering instead.
+        transparent: true,
+        depthTest: false, depthWrite: false,
+        uniforms: {
+          uModel: { value: new Float32Array(16) },
+          // must be a plain Array: OGL's uniform-name parsing treats
+          // "uNodes[0]" as a component path and only backs off when
+          // Array.isArray(value) — a Float32Array gets dropped silently
+          uNodes: { value: new Array(MAX_NODES * 3).fill(0) },
+          uNodeCount: { value: nodeCount },
+          uColor: { value: cssColor(color) },
+          uAlpha: { value: 1 },
+          uChecker: { value: 1 },
+          uHasImage: { value: 0 },
+          uMap: { value: this.white },
+          uTag: { value: tag.tex },
+          uTagAlpha: { value: 1 },
+          uTagRect: { value: tagRect },
+          uSize: { value: [cardW, cardH] },
+          uRadius: { value: radius },
+        },
+      });
+
+      const mesh = new Mesh(this.gl, { geometry, program });
+      mesh.setParent(this.scene);
+
+      const img = card.querySelector('img');
+      if (img) this.loadImage(program, img);
+
+      return { mesh, program, card };
+    });
+  }
+
+  loadImage(program, img) {
+    const apply = () => {
+      const tex = new Texture(this.gl, { image: img, generateMipmaps: false });
+      program.uniforms.uMap.value = tex;
+      program.uniforms.uHasImage.value = 1;
+    };
+    if (img.complete && img.naturalWidth) apply();
+    else img.addEventListener('load', apply, { once: true });
+  }
+
+  render() {
+    if (!this.ok) return;
+    this.renderer.render({ scene: this.scene, camera: this.camera });
+  }
+
+  dispose() {
+    if (this.renderer) {
+      const gl = this.renderer.gl;
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+      if (gl.canvas.parentNode) gl.canvas.parentNode.removeChild(gl.canvas);
+    }
+    this.items = [];
+    this.ok = false;
+  }
+}
+
+function cssColor(str) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = str;
+  ctx.fillRect(0, 0, 1, 1);
+  const d = ctx.getImageData(0, 0, 1, 1).data;
+  return [d[0] / 255, d[1] / 255, d[2] / 255];
+}
