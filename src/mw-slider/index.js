@@ -104,6 +104,7 @@ export function init(root) {
       holder.className = 'mw-tip-hold';
       tipLayer.appendChild(holder);
       bits.forEach((b) => lift(holder, b, card));
+      paintIcon(card, holder);
       tipHolders[i] = holder;
     });
 
@@ -119,6 +120,31 @@ export function init(root) {
     });
   }
   let activeTip = null;
+
+  /* Per-card icon colours, authored in Webflow as plain hex on the card:
+
+       data-icon-bg="#146ef5"   data-icon-color="#ffffff"
+
+     CSS cannot read a hex out of an attribute — attr() only yields strings
+     — so hand them over as custom properties instead, and let the project's
+     own rules consume them. They land on the card AND on the lifted holder,
+     because the tag no longer lives inside the card once it has been lifted
+     into the screen-space layer, and would otherwise inherit nothing.
+
+     Unset means unset: no property is written, so the stylesheet's own
+     default stands rather than being overridden with a guess. */
+  function paintIcon(card, holder) {
+    const pairs = [
+      ['iconBg', '--mw-icon-bg'],
+      ['iconColor', '--mw-icon-color'],
+    ];
+    pairs.forEach(([key, prop]) => {
+      const v = (card.dataset[key] || '').trim();
+      if (!v) return;
+      card.style.setProperty(prop, v);
+      if (holder) holder.style.setProperty(prop, v);
+    });
+  }
 
   /* Move `node` into `holder`, rebuilding the chain of ancestors up to and
      including `top` as empty elements with the same classes.

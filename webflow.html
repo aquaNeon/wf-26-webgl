@@ -50,6 +50,15 @@
     pointer-events: none;
   }
   .webgl_slider_contain > * { margin-top: auto; }
+
+  /* Desktop wants the heading at the top of the section, the way it read
+     before any of this. Only the phone needs it hauled down to meet the
+     row, so drop the centre anchor above 992px and the box collapses to
+     its top edge — --mw-head-top and nothing else. */
+  @media (min-width: 992px) {
+    .webgl_slider_contain { bottom: auto; padding-bottom: 0; }
+    .webgl_slider_contain > * { margin-top: 0; }
+  }
   .webgl_slider_heading_center { text-align: center; }
   .heading-component h1 { margin: 0; font-size: clamp(32px,7vw,96px); letter-spacing: -.045em; font-weight: 700; }
 
@@ -69,8 +78,13 @@
     border: 1px solid var(--hair); border-radius: 5px;
     box-shadow: 0 6px 22px rgba(16,16,16,.10);
   }
-  .webgl_cards_svg_wrap { width: 30px; height: 30px; border-radius: 3px; background: #146ef5; display: grid; place-items: center; flex: none; }
+  /* data-icon-bg / data-icon-color on a card arrive here as custom
+     properties. The fill rule beats the SVG own fill= attribute, which is a
+     presentation attribute and loses to any stylesheet. */
+  .webgl_cards_svg_wrap { width: 30px; height: 30px; border-radius: 3px; display: grid; place-items: center; flex: none;
+    background: var(--mw-icon-bg, #146ef5); }
   .webgl_cards_svg_icon svg { width: 15px; height: 15px; display: block; }
+  .webgl_cards_svg_icon svg path { fill: var(--mw-icon-color, #fff); }
   /* deliberately written as DESCENDANT selectors, the way Webflow emits
      nested styles — these must survive the tag being lifted out of the card */
   .webgl_card_inner_wrap .webgl_cards_poject { font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
@@ -130,15 +144,19 @@
   const ART = '/slide-trevor-noah.png';
   const UI  = '/ui-chrome.png';
 
+  // third entry is optional: [iconBg, iconColor], set per card in Webflow as
+  // data-icon-bg / data-icon-color. Omit it and the stylesheet default stands.
   const NAMES = [
-    ['Trevor Noah', 'Off-brand'], ['Clay', 'N4'], ['Radiant', 'N4'],
+    ['Trevor Noah', 'Off-brand', ['#f04a23', '#ffffff']],
+    ['Clay', 'N4', ['#2f6b4f', '#e8ffe8']],
+    ['Radiant', 'N4'],
     ['Claude', 'Off-brand'], ['Greenhouse', 'N4'], ['Fauna Robotics', 'N4'],
     ['Aggregate', 'Made You Look'], ['Northbound', 'N4'],
   ];
 
   const canvas = document.querySelector('[data-webgl-canvas]');
-  canvas.innerHTML = NAMES.map(([project, studio]) => `
-    <div data-webgl-item class="webgl_cards_wrap">
+  canvas.innerHTML = NAMES.map(([project, studio, icon]) => `
+    <div data-webgl-item class="webgl_cards_wrap"${icon ? ` data-icon-bg="${icon[0]}" data-icon-color="${icon[1]}"` : ''}>
       <div class="webgl_card_inner_wrap">
         <img data-webgl-overlay alt="" src="${UI}" loading="eager" class="webgl_card_ui_overlay">
         <img data-webgl-image alt="" src="${ART}" loading="eager" class="webgl_card_inner_img">
