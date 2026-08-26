@@ -198,6 +198,11 @@ export function init(root) {
     hoverDim: num('hoverDim', 0.5),
 
     /* flight spring — the one clock */
+    /* 0 = auto. A phone card travels a fraction of the distance a desktop
+       one does, but the flight is a spring: its duration is set by time, not
+       by distance. Same seconds over less movement reads as sluggish, so the
+       flight clock runs faster as the stage narrows. */
+    speed: num('speed', 0),
     springK: num('springK', 58),       // stiffness, 1/s^2
     springD: num('springD', 13.5),     // damping, 1/s (critical ≈ 2·√K ≈ 15.2)
     scalePow: num('scalePow', 1.25),   // scale channel reads o slower
@@ -512,7 +517,11 @@ export function init(root) {
   function frameBody(now) {
     const dt = clamp((now - lastT) / 1000, 0.001, 0.05);
     lastT = now;
-    const f60 = dt * 60;
+    // the flight clock, sped up on a narrow stage — see cfg.speed
+    const rate = cfg.speed > 0 ? cfg.speed
+      : clamp(Math.sqrt(1000 / (stageW || window.innerWidth || 1000)), 1, 1.45);
+    const dtE = dt * rate;
+    const f60 = dtE * 60;
     const kOf = (k) => 1 - Math.pow(1 - k, f60);   // frame-rate independent lerp
 
     /* -- one clock: the openness spring. un-clamped, so arrival
@@ -521,8 +530,8 @@ export function init(root) {
     if (flightActive) {
       if (reduced) { o = oTarget; ov = 0; }
       else {
-        ov += (cfg.springK * (oTarget - o) - cfg.springD * ov) * dt;
-        o += ov * dt;
+        ov += (cfg.springK * (oTarget - o) - cfg.springD * ov) * dtE;
+        o += ov * dtE;
       }
       if (rowFrom !== null) current = rowFrom + (rowTo - rowFrom) * clamp01(o);
 
@@ -717,6 +726,10 @@ export function init(root) {
 
       // DOM card keeps the same transform for hit area + focus (and
       // is the whole visual in the reduced / no-GL fallback)
+      /* the outline rides the same transform as the card, so at openScale
+         a 2px ring paints several px wide. Hand the scale to CSS and divide
+         it back out, and the ring stays the width it was authored at. */
+      card.style.setProperty('--mw-focus-k', (1 / Math.max(s, 0.0001)).toFixed(4));
       card.style.transform =
         'rotateZ(' + rz.toFixed(2) + 'deg)' +
         ' rotateY(' + ry.toFixed(2) + 'deg)' +
@@ -1084,7 +1097,7 @@ export function init(root) {
    supplies the layout it depends on. Everything is behind a CSS var with
    a fallback, so a Webflow class can still override it. */
 let cssDone = false;
-function injectCss() {
+export function injectCss() {
   if (cssDone) return;
   cssDone = true;
   const card = 'var(--mw-card-w, clamp(240px, 26cqw, 620px))';
@@ -1101,7 +1114,11 @@ function injectCss() {
 [data-webgl-canvas][data-mw-dragging]{cursor:grabbing}
 [data-webgl-canvas] [data-webgl-item]{position:absolute;margin:0;padding:0;border:0;background:none;
   width:${card};height:${cardH};transform-origin:50% 50%;cursor:pointer;outline:none}
-[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:var(--mw-focus, 2px solid currentColor);outline-offset:4px}
+/* --mw-focus still sets style and colour; width comes from --mw-focus-w so
+   it can be divided back out of the card's scale. */
+[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:var(--mw-focus, 2px solid currentColor);
+  outline-width:calc(var(--mw-focus-w, 2px) * var(--mw-focus-k, 1));
+  outline-offset:calc(var(--mw-focus-offset, 4px) * var(--mw-focus-k, 1))}
 [data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
 /* hidden up front so the raw stacked images never flash before init;
    the no-WebGL fallback sets visibility:visible inline, which wins */

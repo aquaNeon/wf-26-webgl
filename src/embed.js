@@ -4,8 +4,15 @@
    The dev tweak panel ships but stays dormant: add ?mw-tweak to the URL
    (or data-tweak on the slider) to open it on the live site. */
 
-import { init, initAll } from './mw-slider/index.js';
+import { init, initAll, injectCss } from './mw-slider/index.js';
 import { attachTweak } from './mw-slider/tweak.js';
+
+/* Before init the cards are ordinary flow elements, so the section paints
+   as a plain vertical list of images and then snaps into a row the moment
+   the module builds. The CSS that makes them a row does not depend on any
+   of them existing — it is all attribute selectors — so run it the instant
+   this script does, well ahead of the markup it describes. */
+injectCss();
 
 function boot(scope) {
   const made = initAll(scope);
