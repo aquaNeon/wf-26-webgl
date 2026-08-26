@@ -195,7 +195,7 @@ export function init(root) {
     /* proximity hover */
     hoverRadius: num('hoverRadius', 1.4),  // in card-widths
     hoverLift: num('hoverLift', 14),       // px
-    hoverDim: num('hoverDim', 0.28),
+    hoverDim: num('hoverDim', 0.5),
 
     /* flight spring — the one clock */
     springK: num('springK', 58),       // stiffness, 1/s^2
