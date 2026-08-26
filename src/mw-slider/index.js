@@ -70,8 +70,24 @@ export function init(root) {
     root.appendChild(b);
     return b;
   }));
-  const headEl = root.querySelector('[data-mw="head"]')
-    || (root.closest('section') || root).querySelector('[data-webgl-heading]');
+  /* The heading is chrome the module fades, so a missed lookup reads as
+     "the fade is broken". It is authored OUTSIDE the canvas, anywhere up the
+     tree, so walk up from the canvas until an ancestor holds one — section is
+     only the common case, not a rule — and accept the Webflow class names as
+     a fallback for a heading that was never tagged. */
+  const headEl = root.querySelector('[data-mw="head"]') || (() => {
+    /* in priority order, not one grouped selector: querySelector returns
+       document order, so a grouped list would hand back the WRAPPER before
+       the tagged heading inside it. */
+    const sels = ['[data-webgl-heading]', '.webgl_slider_heading_center', '.webgl_slider_contain'];
+    for (let a = root; a && a !== document.documentElement; a = a.parentElement) {
+      for (const sel of sels) {
+        const hit = a.querySelector(sel);
+        if (hit && !hit.contains(root)) return hit;
+      }
+    }
+    return null;
+  })();
   const countEl = root.querySelector('[data-mw="counter"]');
   const indexEl = root.querySelector('[data-mw="index"]');
   const totalEl = root.querySelector('[data-mw="total"]');
@@ -1184,6 +1200,15 @@ export function injectCss() {
 [data-mw-gl] [data-webgl-item]:not(:focus-visible){background:none!important;border:0!important;
   box-shadow:none!important;outline:0!important}
 [data-mw-gl] [data-webgl-item] > *{visibility:hidden!important}
+/* An open card can't be dragged and doesn't reopen, so grab and pointer are
+   both lies while it's up. Appended and forced because the grab hand is often
+   authored on the Webflow class itself, which the defaults sheet loses to.
+   The tag's links and the close button keep their own hand. */
+[data-webgl-canvas][data-mw-open]{cursor:default!important}
+[data-webgl-canvas][data-mw-open] [data-webgl-item]{cursor:default!important}
+[data-webgl-canvas][data-mw-open] [data-webgl-item] *{cursor:inherit}
+[data-webgl-canvas] .mw-tip-layer a,[data-webgl-canvas] .mw-tip-layer button,
+[data-webgl-canvas] [data-webgl-close],[data-webgl-canvas] .mw-close{cursor:pointer!important}
 [data-mw-shell]{position:absolute!important;inset:0!important;
   width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;
   margin:0!important;padding:0!important;border:0!important;background:none!important;

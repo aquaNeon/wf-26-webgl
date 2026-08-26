@@ -66,6 +66,10 @@
     overflow: clip;
   }
   [data-mw="stage"][data-mw-dragging] { cursor: grabbing; }
+  /* An open card can't be dragged and doesn't reopen, so grab and pointer are
+     both lies while it's up — only the tag's links and the close keep a hand. */
+  [data-mw-open] [data-mw="stage"],
+  [data-mw-open] [data-mw="card"] { cursor: default; }
 
   [data-mw="backdrop"] {
     position: absolute;
