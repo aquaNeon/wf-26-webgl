@@ -430,10 +430,17 @@ export class GlLayer {
 
       const artSrc = bestSrc(img);
       const uiSrc = bestSrc(overlay);
+      /* artAspect drives the art rect, so a slide is never stretched to fit
+         the card or the hole. 0 until the texture lands, which reads as
+         "assume the card's aspect" — the old behaviour, and the right guess
+         for the frames before an image arrives. */
+      const item = { mesh, program, card, ownUi: !!uiSrc, artAspect: 0 };
       if (artSrc) {
         this.loadTexture(artSrc, (t) => {
           program.uniforms.uMap.value = t;
           program.uniforms.uHasImage.value = 1;
+          const im = t.image;
+          if (im && im.naturalHeight) item.artAspect = im.naturalWidth / im.naturalHeight;
         });
       }
       if (uiSrc) {
@@ -443,7 +450,7 @@ export class GlLayer {
         });
       }
 
-      return { mesh, program, card, ownUi: !!uiSrc };
+      return item;
     });
     if (this.chromeUrl) this.applyChrome();
   }

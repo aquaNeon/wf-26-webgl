@@ -222,11 +222,11 @@ export function init(root) {
 
     /* UI assembly — the landed card becomes the Designer window and the
        slide tucks itself into the canvas hole. hole defaults are measured
-       from the shipped chrome PNG (41,40 1158x771 of 1440x851). */
+       from the shipped chrome PNG (41,40 1159x771 of 1440x851). */
     uiSrc: root.dataset.ui || '',
     holeX: num('holeX', 0.028472),
     holeY: num('holeY', 0.047004),     // from the TOP edge
-    holeW: num('holeW', 0.804167),
+    holeW: num('holeW', 0.804861),
     holeH: num('holeH', 0.905993),
     fit: root.dataset.fit || 'cover',        // cover | width | contain
     anchor: root.dataset.anchor || 'top',    // top | center
@@ -254,6 +254,10 @@ export function init(root) {
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
+  /* measured off the sub-pixel rect, not offsetWidth/offsetHeight: those
+     round to whole pixels, and the art rect divides by this aspect, so the
+     rounding lands as a fraction of a pixel of overhang at the hole edge. */
+  let cardAspect = 1;
   let scrollShift = 0;   // px the row is carried by the page scroll
   let kbd = false;   // was the last interaction keyboard-driven?
   let running = false, raf = 0, lastT = 0, accum = 0;
@@ -331,6 +335,12 @@ export function init(root) {
     stage.style.setProperty('--mw-perspective', cfg.persp + 'px');
     cardW = cards[0].offsetWidth;
     cardH = cards[0].offsetHeight;
+    // NOT getBoundingClientRect: the cards carry the row's skew, so that
+    // box is the transformed one. The computed width/height are the used
+    // layout values, sub-pixel and transform-free.
+    const cs = getComputedStyle(cards[0]);
+    const cw = parseFloat(cs.width), ch = parseFloat(cs.height);
+    cardAspect = ch > 0 ? cw / ch : (cardH > 0 ? cardW / cardH : 1);
     stageW = stage.clientWidth;
     stageH = stage.clientHeight;
 
@@ -380,23 +390,38 @@ export function init(root) {
   }
 
   /* where the slide sits inside the card at assembly `a`, in card uv
-     (y up). one uniform scale for both axes — the slide and the card
-     share an aspect, so the only mismatch is against the hole, and that
-     resolves as a crop or a strip of canvas, never a stretch. */
-  function artRectAt(a) {
+     (y up). The rect's proportions are locked to the ARTWORK — never to the
+     card, never to the hole — so nothing here can stretch a slide. The row
+     end covers the card face, the assembled end covers the canvas hole, and
+     both are built from the same sx/sy, so the linear lerp between them
+     carries that ratio through untouched.
+
+     Artwork cut to the hole's own aspect is the case worth authoring for: it
+     lands in the hole edge to edge with nothing cropped. Any other aspect
+     still renders honestly, it just loses its overflow. */
+  function artRectAt(a, aspect) {
     const hx = cfg.holeX, hw = cfg.holeW, hh = cfg.holeH;
-    const s = cfg.fit === 'cover' ? Math.max(hw, hh)
-      : cfg.fit === 'contain' ? Math.min(hw, hh)
-        : hw;                                  // 'width', how a real canvas behaves
     const holeTop = 1 - cfg.holeY;             // hole y is measured from the top
+    const k = aspect > 0 ? aspect / cardAspect : 1;   // sx / sy, in card uv
+
+    // in the row a card is a thumbnail: fill its face and crop the overflow
+    const rowH = Math.max(1, 1 / k);
+    // assembled, `fit` decides what happens against the hole. cover fills it
+    // and loses the overflow behind the chrome; width matches the hole's
+    // width the way a real canvas does, letting a short page end early;
+    // contain fits the whole slide and leaves canvas showing.
+    const holeFitH = cfg.fit === 'contain' ? Math.min(hh, hw / k)
+      : cfg.fit === 'width' ? hw / k
+        : Math.max(hh, hw / k);                // 'cover'
     const cx = hx + hw / 2;
     // pinning to the canvas top reads like a page in a Designer viewport;
     // centring reads like an image placed in a frame
-    const cy = cfg.anchor === 'top' ? holeTop - s / 2 : holeTop - hh / 2;
+    const cy = cfg.anchor === 'top' ? holeTop - holeFitH / 2 : holeTop - hh / 2;
+
     artRect[0] = lerp(0.5, cx, a);
     artRect[1] = lerp(0.5, cy, a);
-    artRect[2] = lerp(1, s, a);
-    artRect[3] = lerp(1, s, a);
+    artRect[2] = lerp(rowH * k, holeFitH * k, a);
+    artRect[3] = lerp(rowH, holeFitH, a);
     return artRect;
   }
 
@@ -671,7 +696,7 @@ export function init(root) {
         // only the opened card becomes the Designer window
         const a = i === activeIndex ? asm : 0;
         u.uAssembly.value = a;
-        const r = artRectAt(a);
+        const r = artRectAt(a, it.artAspect);
         const ar = u.uArtRect.value;
         ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
         const hr = u.uHole.value;                   // uv space, y up

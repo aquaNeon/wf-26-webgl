@@ -60,24 +60,46 @@ the tuning panel, so the physics can be tuned in place.
 
 ## UI assembly
 
-Cards are 1440 x 851 — the aspect of both the slides and the Designer chrome
-in `public/`. The slide lives in its own rect inside the card: at rest that
-rect *is* the card, and as the flight lands the rect shrinks into the chrome's
-canvas hole while the chrome is revealed around it. Closing reverses it.
+Cards are 1440 x 851 — the aspect of the Designer chrome in `public/`. Its
+canvas hole is 1159 x 771 at (41, 40), which is the aspect the slides want.
 
-It is one uniform scale, so the slide never distorts; the mismatch between the
-slide (1.692) and the canvas hole (1.502) resolves as a strip of canvas under
-the page (`fit: width`, `anchor: top` — how a real Designer viewport reads) or
-as a crop (`fit: cover`).
+The slide lives in its own rect inside the card: at rest that rect covers the
+card, and as the flight lands the rect shrinks into the chrome's canvas hole
+while the chrome is revealed around it. Closing reverses it.
 
-**Slide export sizes.** A slide only fills the canvas edge to edge if its
-aspect matches the *hole* (1158 x 771, 3:2), not the chrome's outer frame.
-Export at 3:2, or taller than 3:2 so the page runs past the fold and gets
-cropped by the canvas — which is what a real Designer window looks like. At
-the current 1440 x 851 the page is ~11% short, and the strip below it is
-filled with the plate: by default the median colour of the artwork's own
-bottom row, so it reads as the page continuing. Override per card with
-`--mw-plate`, or globally with `data-plate`.
+That rect's proportions are locked to the **artwork's own aspect**, read off
+the texture as it loads — never to the card and never to the hole. So a slide
+cannot be stretched at either end of the flight, and because both ends share
+one sx/sy, the linear interpolation between them carries that ratio through
+untouched: no squash mid-assembly either.
+
+**Slide export sizes.** Export at the aspect of the *hole*, not of the chrome's
+outer frame:
+
+    1159 x 771  =  1.5032        (2318 x 1542 for retina)
+
+At that aspect the slide lands in the canvas edge to edge, with nothing cropped
+and no canvas showing — the case worth authoring for. The cost is paid in the
+row, where the card is 1.692: the slide covers the card face and loses 11.2% of
+its height, 5.6% top and bottom. That is a thumbnail crop, and it is the right
+place for the loss to land.
+
+Any other aspect still renders honestly, it just loses its overflow. A slide
+exported at the card's 1440 x 851 fills the hole top to bottom but overflows it
+by 11.2% of the hole's width, 5.6% cropped behind the chrome on each side —
+which is what `fit: cover` has always done.
+
+`fit` still chooses what happens against the hole: `cover` (default) fills it
+and crops the overflow, `width` matches the hole's width the way a real canvas
+does and lets a short page end early, `contain` fits the whole slide and leaves
+canvas showing. Where canvas does show it is filled with the plate: by default
+the median colour of the artwork's own bottom row, so it reads as the page
+continuing. Override per card with `--mw-plate`, or globally with `data-plate`.
+
+`public/calib-hole-1159x771.svg` and `public/calib-card-1440x851.svg` are test
+slides for this: a frame flush to every edge, a labelled ruler along all four
+sides, and circles that go oval the moment an aspect is wrong. If a numbered
+tick is missing, that much was cropped.
 
 Two details make it read as one motion rather than a second step: it starts at
 `asmGate` while the card is still folding, so the material covers the swap; and
