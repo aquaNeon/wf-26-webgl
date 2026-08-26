@@ -34,7 +34,10 @@
      line; the rest lifts it clear of the cards, with --mw-head-gap to taste. */
   .webgl_slider_contain {
     position: absolute; left: 0; right: 0; top: 50%; z-index: 20;
-    transform: translateY(calc(-100% - var(--mw-card-w) * 0.6155 - var(--mw-head-gap, 32px)));
+    /* the gap grows with the viewport: a phone wants the heading tucked
+       close to the row, a desktop wants it breathing. 32px is the floor the
+       phone layout was tuned at, so widening never disturbs it. */
+    transform: translateY(calc(-100% - var(--mw-card-w) * 0.6155 - var(--mw-head-gap, clamp(32px, 4.5vw, 96px))));
     pointer-events: none;
   }
   .webgl_slider_heading_center { text-align: center; }
