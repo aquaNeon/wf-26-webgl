@@ -32,8 +32,9 @@
     touch-action: pan-y;
 
     --mw-card-w: clamp(240px, 26cqw, 620px);
-    /* the slides and the Designer chrome are both 1440 x 851 */
-    --mw-card-h: calc(var(--mw-card-w) * 851 / 1440);
+    /* the card is the SLIDE's aspect — the chrome's canvas hole, 1159 x 771.
+       Opening widens the plane to the chrome's own 1440 x 851. */
+    --mw-card-h: calc(var(--mw-card-w) * 771 / 1159);
     --mw-radius: 4px;
     --mw-frame: #146ef5;
   }

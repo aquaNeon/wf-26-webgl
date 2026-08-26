@@ -60,12 +60,21 @@ the tuning panel, so the physics can be tuned in place.
 
 ## UI assembly
 
-Cards are 1440 x 851 — the aspect of the Designer chrome in `public/`. Its
-canvas hole is 1159 x 771 at (41, 40), which is the aspect the slides want.
+Two aspects are in play, and the card is authored at the *slide's*:
 
-The slide lives in its own rect inside the card: at rest that rect covers the
-card, and as the flight lands the rect shrinks into the chrome's canvas hole
-while the chrome is revealed around it. Closing reverses it.
+    slide / canvas hole   1159 x 771   1.5032   <- the card's CSS aspect
+    Designer chrome       1440 x 851   1.6921   <- what the card grows into
+
+In the row a card IS a slide, shown whole. As it opens, the plane widens in x
+by 1.1257 and arrives at the chrome's own aspect, so the Designer window is
+drawn undistorted — and the slide, shrinking into the hole at the same time,
+lands in it edge to edge. Nothing is cropped at either end.
+
+That widening is a non-uniform scale on the model matrix (and on the DOM card's
+transform, which is the hit area). It is driven by the assembly, so it costs no
+extra motion: the window simply unfolds as it forms. The chrome's aspect is
+read off its own texture, so a project that ships different chrome needs no
+config — only a matching `--mw-card-h`.
 
 That rect's proportions are locked to the **artwork's own aspect**, read off
 the texture as it loads — never to the card and never to the hole. So a slide
@@ -73,21 +82,18 @@ cannot be stretched at either end of the flight, and because both ends share
 one sx/sy, the linear interpolation between them carries that ratio through
 untouched: no squash mid-assembly either.
 
-**Slide export sizes.** Export at the aspect of the *hole*, not of the chrome's
-outer frame:
+**Slide export sizes.** Export at the hole's aspect, which is the card's:
 
     1159 x 771  =  1.5032        (2318 x 1542 for retina)
 
-At that aspect the slide lands in the canvas edge to edge, with nothing cropped
-and no canvas showing — the case worth authoring for. The cost is paid in the
-row, where the card is 1.692: the slide covers the card face and loses 11.2% of
-its height, 5.6% top and bottom. That is a thumbnail crop, and it is the right
-place for the loss to land.
+At that aspect the slide is whole in the row AND edge to edge in the canvas —
+there is no crop anywhere, and nothing to trade off. It is the ratio the whole
+assembly is built around.
 
-Any other aspect still renders honestly, it just loses its overflow. A slide
-exported at the card's 1440 x 851 fills the hole top to bottom but overflows it
-by 11.2% of the hole's width, 5.6% cropped behind the chrome on each side —
-which is what `fit: cover` has always done.
+Any other aspect still renders honestly, it just loses its overflow. A slide at
+the chrome's 1440 x 851 covers the card and loses 11.2% of its width in the row,
+and the same behind the chrome once assembled — which is what `fit: cover` has
+always done.
 
 `fit` still chooses what happens against the hole: `cover` (default) fills it
 and crops the overflow, `width` matches the hole's width the way a real canvas

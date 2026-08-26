@@ -40,7 +40,7 @@ function multiply(out, a, b) {
   return out;
 }
 
-export function composeCardMatrix(out, cssRz, cssRy, x, y, z, cssSkewY, s) {
+export function composeCardMatrix(out, cssRz, cssRy, x, y, z, cssSkewY, s, sx) {
   const rz = -cssRz * Math.PI / 180;
   const ry = cssRy * Math.PI / 180;
   const k = -Math.tan(cssSkewY * Math.PI / 180);
@@ -51,7 +51,7 @@ export function composeCardMatrix(out, cssRz, cssRy, x, y, z, cssSkewY, s) {
   const RY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
   const T = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, -y, z, 1];
   const K = [1, k, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-  const S = [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1];
+  const S = [s * (sx === undefined ? 1 : sx), 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, 0, 0, 0, 1];
 
   // CSS transform list applies right-to-left: M = Rz · Ry · T · K · S
   out.set(RZ);
@@ -434,7 +434,7 @@ export class GlLayer {
          the card or the hole. 0 until the texture lands, which reads as
          "assume the card's aspect" — the old behaviour, and the right guess
          for the frames before an image arrives. */
-      const item = { mesh, program, card, ownUi: !!uiSrc, artAspect: 0 };
+      const item = { mesh, program, card, ownUi: !!uiSrc, artAspect: 0, uiAspect: 0 };
       if (artSrc) {
         this.loadTexture(artSrc, (t) => {
           program.uniforms.uMap.value = t;
@@ -447,6 +447,8 @@ export class GlLayer {
         this.loadTexture(uiSrc, (t) => {
           program.uniforms.uChrome.value = t;
           program.uniforms.uHasChrome.value = 1;
+          const im = t.image;
+          if (im && im.naturalHeight) item.uiAspect = im.naturalWidth / im.naturalHeight;
         });
       }
 
@@ -470,6 +472,8 @@ export class GlLayer {
       this.loadTexture(this.chromeUrl, (t) => {
         it.program.uniforms.uChrome.value = t;
         it.program.uniforms.uHasChrome.value = 1;
+        const im = t.image;
+        if (im && im.naturalHeight) it.uiAspect = im.naturalWidth / im.naturalHeight;
       });
     });
   }

@@ -258,6 +258,12 @@ export function init(root) {
      round to whole pixels, and the art rect divides by this aspect, so the
      rounding lands as a fraction of a pixel of overhang at the hole edge. */
   let cardAspect = 1;
+  /* How much wider the card has to get to BE the Designer window. The card
+     is authored at the slide's aspect so the row shows a slide whole, and
+     the chrome is a wider frame around a hole of that same aspect — so the
+     plane grows in x across the assembly and arrives at the chrome's shape.
+     1 until a chrome texture reports its size, and 1 forever without one. */
+  let uiGrow = 1;
   let scrollShift = 0;   // px the row is carried by the page scroll
   let kbd = false;   // was the last interaction keyboard-driven?
   let running = false, raf = 0, lastT = 0, accum = 0;
@@ -356,7 +362,9 @@ export function init(root) {
     });
 
     const margin = clamp(stageW * 0.07, 28, 96) + cfg.frameGap;
-    openScale = Math.min((stageW - margin * 2) / cardW, (stageH - margin * 2) / cardH);
+    // against the WIDENED card: it is what actually has to fit the stage
+    openScale = Math.min((stageW - margin * 2) / (cardW * uiGrow),
+      (stageH - margin * 2) / cardH);
 
     layoutChrome();
     if (useGl) {
@@ -376,7 +384,7 @@ export function init(root) {
   let builtKey = '';
 
   function layoutChrome() {
-    const w = cardW * openScale, h = cardH * openScale;
+    const w = cardW * uiGrow * openScale, h = cardH * openScale;
     if (tipLayer) {
       // exactly the landed card: the tags position against this
       tipLayer.style.width = w + 'px';
@@ -389,6 +397,21 @@ export function init(root) {
     }
   }
 
+  /* what this card has to become: the chrome's aspect over the card's. */
+  function growOf(it) {
+    return it && it.uiAspect > 0 && cardAspect > 0 ? it.uiAspect / cardAspect : 1;
+  }
+
+  /* The chrome arrives asynchronously, and openScale is measured against the
+     widened card — so the first texture to report its size has to send the
+     layout back through measure() once. */
+  function syncUiGrow() {
+    if (!useGl || !gl) return;
+    let g = 1;
+    for (let i = 0; i < gl.items.length; i++) g = Math.max(g, growOf(gl.items[i]));
+    if (Math.abs(g - uiGrow) > 1e-4) { uiGrow = g; measure(); }
+  }
+
   /* where the slide sits inside the card at assembly `a`, in card uv
      (y up). The rect's proportions are locked to the ARTWORK — never to the
      card, never to the hole — so nothing here can stretch a slide. The row
@@ -399,10 +422,12 @@ export function init(root) {
      Artwork cut to the hole's own aspect is the case worth authoring for: it
      lands in the hole edge to edge with nothing cropped. Any other aspect
      still renders honestly, it just loses its overflow. */
-  function artRectAt(a, aspect) {
+  function artRectAt(a, aspect, grow) {
     const hx = cfg.holeX, hw = cfg.holeW, hh = cfg.holeH;
     const holeTop = 1 - cfg.holeY;             // hole y is measured from the top
-    const k = aspect > 0 ? aspect / cardAspect : 1;   // sx / sy, in card uv
+    // the plane's aspect at this instant, not the authored one
+   const liveAspect = cardAspect * grow;
+    const k = aspect > 0 ? aspect / liveAspect : 1;   // sx / sy, in card uv
 
     // in the row a card is a thumbnail: fill its face and crop the overflow
     const rowH = Math.max(1, 1 / k);
@@ -550,6 +575,7 @@ export function init(root) {
       }
     }
 
+    syncUiGrow();
     for (let i = 0; i < n; i++) {
       const card = cards[i];
       const ideal = relOf(i);
@@ -615,7 +641,14 @@ export function init(root) {
         if (Math.abs(card._lift) > 0.05) opAwake = true;
       }
 
-      composeCardMatrix(card._mat, rz, ry, x, y, z, sk, s);
+      /* only the opened card becomes the window, and only the GL layer
+         draws the chrome — the DOM fallback is a plain card and must not be
+         stretched into a shape nothing is drawn in. */
+      const it0 = gl && gl.items[i];
+      const grow = (useGl && it0 && i === activeIndex)
+        ? 1 + (growOf(it0) - 1) * asm : 1;
+      card._grow = grow;
+      composeCardMatrix(card._mat, rz, ry, x, y, z, sk, s, grow);
       card._z = z;   // the INTENDED depth; see the renderOrder note below
 
       /* slots: the rigid transform sampled along the card's midline.
@@ -623,7 +656,7 @@ export function init(root) {
          has to catch up — the centre-card bloom is just this. */
       const chain = card._chain;
       for (let j = 0; j < chain.n; j++) {
-        const lx = (j / (chain.n - 1) - 0.5) * cardW;
+        const lx = (j / (chain.n - 1) - 0.5) * cardW;   // _mat carries the grow
         transformPoint(card._mat, lx, 0, pt);
         chain.slotX[j] = pt[0];
         chain.slotZ[j] = pt[2];
@@ -657,7 +690,7 @@ export function init(root) {
         ' rotateY(' + ry.toFixed(2) + 'deg)' +
         ' translate3d(' + x.toFixed(2) + 'px,' + y.toFixed(2) + 'px,' + z.toFixed(2) + 'px)' +
         ' skewY(' + sk.toFixed(2) + 'deg)' +
-        ' scale3d(' + s.toFixed(4) + ',' + s.toFixed(4) + ',' + s.toFixed(4) + ')';
+        ' scale3d(' + (s * grow).toFixed(4) + ',' + s.toFixed(4) + ',' + s.toFixed(4) + ')';
       if (!useGl) card.style.opacity = card._op.toFixed(3);
       card.style.zIndex = active ? 600 : String(Math.round(400 - rel * 10));
       card.style.pointerEvents = (activeIndex >= 0 && !active) ? 'none' : 'auto';
@@ -696,7 +729,7 @@ export function init(root) {
         // only the opened card becomes the Designer window
         const a = i === activeIndex ? asm : 0;
         u.uAssembly.value = a;
-        const r = artRectAt(a, it.artAspect);
+        const r = artRectAt(a, it.artAspect, card._grow || 1);
         const ar = u.uArtRect.value;
         ar[0] = r[0]; ar[1] = r[1]; ar[2] = r[2]; ar[3] = r[3];
         const hr = u.uHole.value;                   // uv space, y up
@@ -1023,6 +1056,11 @@ function injectCss() {
   if (cssDone) return;
   cssDone = true;
   const card = 'var(--mw-card-w, clamp(240px, 26cqw, 620px))';
+  /* The card is authored at the SLIDE's aspect — the chrome's canvas hole,
+     1159 x 771 — so the row shows a slide whole. Opening widens the plane
+     to the chrome's own 1440 x 851. Override with --mw-card-h if a project
+     ships slides cut to some other ratio. */
+  const cardH = 'var(--mw-card-h, calc(' + card + ' * 771 / 1159))';
   const s = document.createElement('style');
   s.textContent = `
 [data-webgl-canvas]{position:relative;display:flex;align-items:center;justify-content:center;
@@ -1030,7 +1068,7 @@ function injectCss() {
   perspective:var(--mw-perspective,2200px);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:pan-y}
 [data-webgl-canvas][data-mw-dragging]{cursor:grabbing}
 [data-webgl-canvas] [data-webgl-item]{position:absolute;margin:0;padding:0;border:0;background:none;
-  width:${card};height:calc(${card} * 851 / 1440);transform-origin:50% 50%;cursor:pointer;outline:none}
+  width:${card};height:${cardH};transform-origin:50% 50%;cursor:pointer;outline:none}
 [data-webgl-canvas] [data-webgl-item]:focus-visible{outline:var(--mw-focus, 2px solid currentColor);outline-offset:4px}
 [data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
 /* hidden up front so the raw stacked images never flash before init;
