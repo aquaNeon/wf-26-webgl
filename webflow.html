@@ -27,38 +27,14 @@
     container-type: inline-size;
   }
 
-  /* The heading rides the row rather than the top of the section. The row's
-     half-height is the card's half-height plus half of what the 29.5deg skew
-     adds across the card's width — 0.6652/2 + 0.5658/2 = 0.6155 of a card
-     width. translateY(-100%) puts the heading's baseline box on the centre
-     line; the rest lifts it clear of the cards, with --mw-head-gap to taste. */
-  /* The heading hangs off the centre line rather than the top of the
-     section, so it travels with the row instead of stranding a screenful of
-     air above it. The box runs from a 2rem safe edge down to the centre; the
-     padding lifts the heading clear of the row, and margin-top:auto parks it
-     against that padding. When the lift would push it past the top the auto
-     margin simply collapses, so --mw-head-top is a floor the heading can
-     never cross, however large the cards or short the viewport. */
+  /* The heading sits at the top of the section and stays there. Opening a
+     card fades it out (the module drives its opacity), which is all small
+     screens need — no anchoring it to the row. */
   .webgl_slider_contain {
-    position: absolute; left: 0; right: 0; z-index: 20;
-    top: var(--mw-head-top, 2rem); bottom: 50%;
-    display: flex; flex-direction: column;
-    /* the gap grows with the viewport: a phone wants the heading tucked
-       close to the row, a desktop wants it breathing. 32px is the floor the
-       phone layout was tuned at, so widening never disturbs it. */
-    padding-bottom: calc(var(--mw-card-w) * 0.6155 + var(--mw-head-gap, clamp(32px, 4.5vw, 96px)));
-    pointer-events: none;
+    position: absolute; left: 0; right: 0; top: var(--mw-head-top, 2rem);
+    z-index: 20; pointer-events: none;
   }
-  .webgl_slider_contain > * { margin-top: auto; }
 
-  /* Desktop wants the heading at the top of the section, the way it read
-     before any of this. Only the phone needs it hauled down to meet the
-     row, so drop the centre anchor above 992px and the box collapses to
-     its top edge — --mw-head-top and nothing else. */
-  @media (min-width: 992px) {
-    .webgl_slider_contain { bottom: auto; padding-bottom: 0; }
-    .webgl_slider_contain > * { margin-top: 0; }
-  }
   .webgl_slider_heading_center { text-align: center; }
   .heading-component h1 { margin: 0; font-size: clamp(32px,7vw,96px); letter-spacing: -.045em; font-weight: 700; }
 
