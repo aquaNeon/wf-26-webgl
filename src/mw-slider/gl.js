@@ -434,11 +434,15 @@ export class GlLayer {
          the card or the hole. 0 until the texture lands, which reads as
          "assume the card's aspect" — the old behaviour, and the right guess
          for the frames before an image arrives. */
-      const item = { mesh, program, card, ownUi: !!uiSrc, artAspect: 0, uiAspect: 0 };
+      const item = { mesh, program, card, ownUi: !!uiSrc, artAspect: 0, uiAspect: 0,
+        // the reveal waits on the art, not the chrome: a card with no slide
+        // has nothing to wait for
+        needsArt: !!artSrc, hasArt: !artSrc };
       if (artSrc) {
         this.loadTexture(artSrc, (t) => {
           program.uniforms.uMap.value = t;
           program.uniforms.uHasImage.value = 1;
+          item.hasArt = true;
           const im = t.image;
           if (im && im.naturalHeight) item.artAspect = im.naturalWidth / im.naturalHeight;
         });

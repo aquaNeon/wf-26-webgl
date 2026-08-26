@@ -38,6 +38,19 @@
   .webgl_slider_heading_center { text-align: center; }
   .heading-component h1 { margin: 0; font-size: clamp(32px,7vw,96px); letter-spacing: -.045em; font-weight: 700; }
 
+  /* This is the only rule that can beat the first paint: it ships with the
+     page, while the module's CSS arrives with the module. Cards stay dark
+     until the slides are on the GPU, then the GL layer fades in. */
+  .webgl_canvas:not([data-mw-ready]) [data-webgl-item] { opacity: 0; }
+  /* the artwork's corner — the focus ring reads this off the image */
+  .webgl_card_inner_img { border-radius: 10px; }
+  /* the card's own opener, authored in Webflow: the module adds no tabindex
+     or role of its own, so this is what carries the affordance */
+  .webgl_card_inner_button {
+    position: absolute; inset: 0; z-index: 2;
+    margin: 0; padding: 0; border: 0; background: none; cursor: pointer;
+  }
+
   .webgl_canvas {
     --mw-backdrop: var(--page-bg);   /* omit this and the row stays visible */
     position: absolute; inset: 0;      /* must beat the module's default */
@@ -133,6 +146,7 @@
   const canvas = document.querySelector('[data-webgl-canvas]');
   canvas.innerHTML = NAMES.map(([project, studio, icon]) => `
     <div data-webgl-item class="webgl_cards_wrap"${icon ? ` data-icon-bg="${icon[0]}" data-icon-color="${icon[1]}"` : ''}>
+      <button type="button" aria-label="Open" class="webgl_card_inner_button"></button>
       <div class="webgl_card_inner_wrap">
         <img data-webgl-overlay alt="" src="${UI}" loading="eager" class="webgl_card_ui_overlay">
         <img data-webgl-image alt="" src="${ART}" loading="eager" class="webgl_card_inner_img">

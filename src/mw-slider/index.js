@@ -298,6 +298,8 @@ export function init(root) {
   const artRect = [0.5, 0.5, 1, 1];
   let rowFrom = null, rowTo = 0;
   let landed = false, landedT = 0, tipT = 0, closeT = 0;
+  let ready = false;
+  const bornT = performance.now();
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
   let cardW = 0, cardH = 0, stageW = 0, stageH = 0, openScale = 1;
@@ -321,6 +323,9 @@ export function init(root) {
   let useGl = !!(gl && gl.ok);
   let glRetries = 0;
   if (gl) gl.onTexture = () => wake();   // a late image must redraw a parked loop
+  // a slide that 404s never wakes the loop, so the reveal's timeout would
+  // never be read and the section would stay dark for good
+  const revealTimer = setTimeout(() => wake(), 2600);
 
   const nodeBuf = new Float32Array(MAX_NODES * 3);
   const pt = new Float32Array(3);
@@ -331,13 +336,20 @@ export function init(root) {
     c._chain = new ClothChain(cfg.nodes);
     c._chain.phase = ci * 2.399;   // golden-angle spread of the ripple
     c._parked = true;   // snap to slots on the first laid-out frame
-    // Webflow cards are divs — give them the affordances the reference
-    // markup gets from being a <button>
-    if (!c.matches('button, a') && !c.hasAttribute('tabindex')) {
-      c.setAttribute('tabindex', '0');
-      c.setAttribute('role', 'button');
-      const label = c.querySelector('[data-webgl-title], .webgl_cards_poject');
-      if (label && !c.getAttribute('aria-label')) c.setAttribute('aria-label', label.textContent.trim());
+    /* The focus ring is drawn on the CARD, because the GL layer owns the
+       artwork — so it has to borrow the artwork's corner. Read it off the
+       image (or whatever wraps it) once, and let --mw-focus-radius override.
+       Only the first radius: outline-radius takes one length here, and a
+       card with per-corner rounding is not a thing this ring has to serve. */
+    if (!c.style.getPropertyValue('--mw-focus-radius')) {
+      // in priority order: the image IS the artwork, and its wrapper is only
+      // a guess for when the corner was authored on the frame instead
+      const srcs = ['[data-webgl-image]', '[data-mw="media"] img', '[data-mw="media"]', '.webgl_card_inner_wrap'];
+      for (const sel of srcs) {
+        const el = c.querySelector(sel);
+        const r = el && (getComputedStyle(el).borderTopLeftRadius || '').trim();
+        if (r && parseFloat(r) > 0) { c.style.setProperty('--mw-focus-radius', r); break; }
+      }
     }
   });
   setMediaHidden(useGl);
@@ -836,6 +848,18 @@ export function init(root) {
       gl.render();
     }
 
+    /* -- the reveal. The row is hidden until the slides are actually on the
+       GPU, so a slow CDN shows nothing rather than a stack of raw <img>
+       flashing into place. Timed out rather than gated: one 404 must not
+       leave the whole section blank. */
+    if (!ready) {
+      const artIn = !useGl || !gl.items.length || gl.items.every((it) => it.hasArt);
+      if (artIn || performance.now() - bornT > 2500) {
+        ready = true;
+        root.setAttribute('data-mw-ready', '');
+      }
+    }
+
     /* -- chrome + fades */
     backdrop.style.opacity = (oc * 0.92).toFixed(3);
     if (headEl) headEl.style.opacity = (1 - oc).toFixed(3);
@@ -847,7 +871,13 @@ export function init(root) {
       activeTip.style.transform = tipLayer
         ? 'translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)'
         : 'translate(-100%,-100%) translateY(' + ((1 - tipT) * 8).toFixed(2) + 'px)';
-      activeTip.style.pointerEvents = tipT > 0.6 ? 'auto' : 'none';
+      const live = tipT > 0.6;
+      activeTip.style.pointerEvents = live ? 'auto' : 'none';
+      // the CSS above hangs off this: only the holder in play may be hit
+      if (activeTip.hasAttribute('data-mw-live') !== live) {
+        if (live) activeTip.setAttribute('data-mw-live', '');
+        else activeTip.removeAttribute('data-mw-live');
+      }
     }
     // per-card closes ride their holder's fade; only global ones need driving
     globalCloses.forEach((c) => {
@@ -922,6 +952,43 @@ export function init(root) {
     wake();
   }
 
+  /* An open card is a dialog in everything but name: the row behind it is
+     inert, so Tab must not walk off into it. The trap is the open card's own
+     chrome — the tag's links and the close — plus a global close as the last
+     resort, and it collapses to nothing rather than fight if a card ships no
+     controls at all. */
+  const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function trapped() {
+    const scope = [];
+    if (activeTip) scope.push(activeTip);
+    if (closeBtn && (!activeTip || !activeTip.contains(closeBtn))) scope.push(closeBtn);
+    const out = [];
+    scope.forEach((el) => {
+      if (el.matches(FOCUSABLE)) out.push(el);
+      el.querySelectorAll(FOCUSABLE).forEach((f) => out.push(f));
+    });
+    // an element the fade has switched off is not reachable by pointer, so
+    // it must not be reachable by Tab either
+    return out.filter((f) => f.offsetParent !== null && getComputedStyle(f).pointerEvents !== 'none');
+  }
+
+  function onTrapKey(e) {
+    if (!isOpen || e.key !== 'Tab') return;
+    const list = trapped();
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    const here = document.activeElement;
+    // outside the trap entirely (a click landed on the backdrop, say):
+    // the next Tab re-enters it rather than continuing down the page
+    if (!list.includes(here)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus({ preventScroll: true });
+      return;
+    }
+    if (!e.shiftKey && here === last) { e.preventDefault(); first.focus({ preventScroll: true }); }
+    else if (e.shiftKey && here === first) { e.preventDefault(); last.focus({ preventScroll: true }); }
+  }
+
   function closeCard() {
     if (!isOpen) return;
     isOpen = false;
@@ -929,7 +996,15 @@ export function init(root) {
     oTarget = 0;                        // same spring, retargeted: an
     rowFrom = null;                     // interrupt is continuous by construction
     root.removeAttribute('data-mw-open');
-    if (kbd) cards[activeIndex].focus({ preventScroll: true });
+    // back to what opened it. The card itself is only focusable if the
+    // project made it so — the module no longer adds a tabindex — so prefer
+    // the control authored inside it.
+    if (kbd && activeIndex >= 0) {
+      const card = cards[activeIndex];
+      const opener = card.matches('button, a, [tabindex]') ? card
+        : card.querySelector('button, a[href], [tabindex]:not([tabindex="-1"])');
+      if (opener) opener.focus({ preventScroll: true });
+    }
     wake();
   }
 
@@ -1007,6 +1082,11 @@ export function init(root) {
       openCard(i);
     };
     const key = (e) => {
+      // a real button or link inside the card fires its own click on
+      // Enter/Space, which bubbles here as a click — acting on the keydown
+      // too would open the card twice
+      if (e.target !== card && e.target.closest('button, a, [tabindex]') !== card) return;
+      if (isOpen) return;
       if (e.key === 'Enter' || e.key === ' ') { kbd = true; e.preventDefault(); openCard(i); }
     };
     card.addEventListener('pointerenter', enter);
@@ -1041,6 +1121,8 @@ export function init(root) {
   closeAll.forEach((c) => c.addEventListener('click', onCloseClick));
   if (closeBtn && !closeAll.includes(closeBtn)) closeBtn.addEventListener('click', onCloseClick);
   addEventListener('keydown', onKey);
+  // capture: the trap has to answer before anything in the page moves focus
+  addEventListener('keydown', onTrapKey, true);
   addEventListener('resize', onResize);
   addEventListener('scroll', onScroll, { passive: true });
   document.addEventListener('visibilitychange', onVis);
@@ -1078,6 +1160,7 @@ export function init(root) {
       if (destroyed) return;
       destroyed = true;
       cancelAnimationFrame(raf);
+      clearTimeout(revealTimer);
       stage.removeEventListener('wheel', onWheel);
       stage.removeEventListener('pointerdown', onDown);
       stage.removeEventListener('pointermove', onStageMove);
@@ -1086,6 +1169,7 @@ export function init(root) {
       closeAll.forEach((c) => c.removeEventListener('click', onCloseClick));
       if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       removeEventListener('keydown', onKey);
+      removeEventListener('keydown', onTrapKey, true);
       removeEventListener('resize', onResize);
       removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onVis);
@@ -1158,9 +1242,13 @@ export function injectCss() {
   width:${card};height:${cardH};transform-origin:50% 50%;cursor:pointer;outline:none}
 /* --mw-focus still sets style and colour; width comes from --mw-focus-w so
    it can be divided back out of the card's scale. */
-[data-webgl-canvas] [data-webgl-item]:focus-visible{outline:var(--mw-focus, 2px solid currentColor);
+[data-webgl-canvas] [data-webgl-item]:focus-visible,
+[data-webgl-canvas] [data-webgl-item]:has(:focus-visible){outline:var(--mw-focus, 2px solid currentColor);
   outline-width:calc(var(--mw-focus-w, 2px) * var(--mw-focus-k, 1));
-  outline-offset:calc(var(--mw-focus-offset, 4px) * var(--mw-focus-k, 1))}
+  outline-offset:calc(var(--mw-focus-offset, 4px) * var(--mw-focus-k, 1));
+  /* the ring rounds with the artwork; --mw-focus-radius is read off the
+     card's own image at init, and scales with the card like the rest */
+  border-radius:calc(var(--mw-focus-radius, 0px) * var(--mw-focus-k, 1))}
 [data-webgl-canvas] [data-webgl-item] > *{width:100%;height:100%}
 /* hidden up front so the raw stacked images never flash before init;
    the no-WebGL fallback sets visibility:visible inline, which wins */
@@ -1171,10 +1259,30 @@ export function injectCss() {
 [data-webgl-canvas] .mw-backdrop{position:absolute;inset:0;z-index:500;opacity:0;pointer-events:none;
   background:var(--mw-backdrop, transparent)}
 [data-mw-open] .mw-backdrop{pointer-events:auto}
+/* the GL layer fades in once the slides are uploaded; pair it with
+   [data-webgl-canvas]:not([data-mw-ready]) [data-webgl-item]{opacity:0} in
+   the project's own CSS, which lands before this module ever runs and so is
+   the only thing that can cover the raw markup on first paint */
+[data-webgl-canvas] > canvas{opacity:0;transition:opacity var(--mw-reveal, .45s) ease}
+[data-webgl-canvas][data-mw-ready] > canvas{opacity:1}
 /* sized to the open card, so a tag authored absolute against the image
    lands exactly where it was designed */
 [data-webgl-canvas] .mw-tip-layer{position:absolute;left:50%;top:50%;z-index:640;pointer-events:none}
 [data-webgl-canvas] .mw-tip-hold{position:absolute;inset:0;opacity:0;pointer-events:none}
+/* The shells are stacked full-bleed copies of the card, so the topmost one
+   swallows every pointer event over the artwork — which is why a tag link
+   only answered on the sliver hanging outside the card. Nothing but the
+   authored tag and close is meant to be hit.
+   Gated on [data-mw-live], the marker for the holder the open card is
+   actually using: pointer-events is INHERITED, so an unconditional auto here
+   would make all eight invisible holders hittable, and the last one in the
+   DOM would swallow the pointer on behalf of a card nobody opened. */
+[data-webgl-canvas] .mw-tip-hold [data-mw-shell]{pointer-events:none}
+[data-webgl-canvas] .mw-tip-hold[data-mw-live] [data-webgl-tag],
+[data-webgl-canvas] .mw-tip-hold[data-mw-live] .webgl_cards_tag,
+[data-webgl-canvas] .mw-tip-hold[data-mw-live] [data-webgl-pin],
+[data-webgl-canvas] .mw-tip-hold[data-mw-live] [data-webgl-close],
+[data-webgl-canvas] .mw-tip-hold[data-mw-live] [data-mw="close"]{pointer-events:auto}
 .mw-close{position:absolute;top:clamp(16px,3svh,34px);right:clamp(16px,3cqw,34px);z-index:800;
   width:42px;height:42px;border-radius:50%;border:1px solid rgba(0,0,0,.15);background:#fff;color:#101010;
   display:grid;place-items:center;cursor:pointer;opacity:0;pointer-events:none;transition:transform .3s ease}
@@ -1197,9 +1305,18 @@ export function injectCss() {
    nothing — otherwise a background on the card or its wrapper shows through
    as a plain rectangle behind the flying card */
 [data-webgl-canvas] [data-webgl-item]{position:absolute!important}
-[data-mw-gl] [data-webgl-item]:not(:focus-visible){background:none!important;border:0!important;
-  box-shadow:none!important;outline:0!important}
+[data-mw-gl] [data-webgl-item]:not(:focus-visible):not(:has(:focus-visible)){background:none!important;
+  border:0!important;box-shadow:none!important;outline:0!important}
 [data-mw-gl] [data-webgl-item] > *{visibility:hidden!important}
+/* visibility:hidden takes an element out of the focus order, so an opener
+   authored inside the card would be unreachable by keyboard the moment the
+   GL layer takes over. Transparent instead of hidden: it paints nothing,
+   still takes focus, and still takes the click. */
+[data-mw-gl] [data-webgl-item] > button,
+[data-mw-gl] [data-webgl-item] > a,
+[data-mw-gl] [data-webgl-item] > [tabindex],
+[data-mw-gl] [data-webgl-item] [data-webgl-open]{visibility:visible!important;opacity:0!important;
+  background:none!important;border:0!important;box-shadow:none!important}
 /* An open card can't be dragged and doesn't reopen, so grab and pointer are
    both lies while it's up. Appended and forced because the grab hand is often
    authored on the Webflow class itself, which the defaults sheet loses to.
