@@ -24,17 +24,47 @@ function boot(scope) {
     },
     attachTweak,
   };
-  // drop any instance destroyed since the last boot
-  api.instances = api.instances.filter((i) => i.root.dataset.mwInit).concat(made);
+  // drop any instance destroyed since the last boot, and any root that was
+  // already live — an early boot means boot() can run twice over one root,
+  // and init() hands back the SAME instance rather than a second one
+  const kept = api.instances.filter((i) => i.root.dataset.mwInit && !made.includes(i));
+  api.instances = kept.concat(made);
   window.MwSlider = api;
   return made;
 }
 
-if (document.readyState === 'loading') {
+/* Boot each slider as soon as its OWN markup is complete, rather than waiting
+   for DOMContentLoaded. On a Webflow page DCL routinely lands a second after
+   this script has run — every other embed on the page is in front of us — and
+   until init the section is deliberately blank, because the cards are hidden
+   to stop them flashing as a raw stack. A fast scroll arrives inside exactly
+   that window and finds nothing there.
+
+   A root whose nextSibling exists has had its closing tag parsed, so all of
+   its cards are present and it is safe to build. DOMContentLoaded stays as
+   the backstop for anything the observer did not catch (a root that is the
+   last node in its parent, markup injected later). boot() is idempotent:
+   init() returns the existing instance for a root it has already built. */
+function bootWhenParsed() {
+  if (document.readyState !== 'loading') { boot(); return; }
+
+  const anyParsed = () => Array.prototype.some.call(
+    document.querySelectorAll('[data-mw="root"], [data-webgl-canvas]'),
+    (r) => !r.dataset.mwInit && r.nextSibling,
+  );
+
+  let obs = null;
+  const done = () => { if (obs) { obs.disconnect(); obs = null; } boot(); };
+
+  if (anyParsed()) { boot(); }
+  else if (typeof MutationObserver === 'function') {
+    obs = new MutationObserver(() => { if (anyParsed()) done(); });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  }
   // wrapped: as a listener, boot would receive the Event as its scope
-  document.addEventListener('DOMContentLoaded', () => boot());
-} else {
-  boot();
+  document.addEventListener('DOMContentLoaded', done, { once: true });
 }
+
+bootWhenParsed();
 
 export { init, initAll, attachTweak };
