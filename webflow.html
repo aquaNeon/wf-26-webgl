@@ -20,13 +20,27 @@
   .filler { height: 100svh; display: grid; place-items: center; color: var(--ink-soft); font-size: 13px; }
   /* Heading sits in normal flow, canvas absolutely fills the section —
      the layout the real site uses. */
-  .webgl_slider_wrap { position: relative; height: 100svh; overflow: hidden; }
-  .webgl_slider_contain { position: relative; z-index: 20; padding-top: clamp(24px,6svh,72px); pointer-events: none; }
+  .webgl_slider_wrap {
+    position: relative; height: 100svh; overflow: hidden;
+    /* on the WRAP, not the canvas, so the heading can measure against it too */
+    --mw-card-w: clamp(240px, 26cqw, 620px);
+    container-type: inline-size;
+  }
+
+  /* The heading rides the row rather than the top of the section. The row's
+     half-height is the card's half-height plus half of what the 29.5deg skew
+     adds across the card's width — 0.6652/2 + 0.5658/2 = 0.6155 of a card
+     width. translateY(-100%) puts the heading's baseline box on the centre
+     line; the rest lifts it clear of the cards, with --mw-head-gap to taste. */
+  .webgl_slider_contain {
+    position: absolute; left: 0; right: 0; top: 50%; z-index: 20;
+    transform: translateY(calc(-100% - var(--mw-card-w) * 0.6155 - var(--mw-head-gap, 32px)));
+    pointer-events: none;
+  }
   .webgl_slider_heading_center { text-align: center; }
   .heading-component h1 { margin: 0; font-size: clamp(32px,7vw,96px); letter-spacing: -.045em; font-weight: 700; }
 
   .webgl_canvas {
-    --mw-card-w: clamp(240px, 26cqw, 620px);
     --mw-backdrop: var(--page-bg);   /* omit this and the row stays visible */
     position: absolute; inset: 0;      /* must beat the module's default */
   }
