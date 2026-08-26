@@ -308,9 +308,41 @@ export function init(root) {
       // the source for the textures and must not also be painted
       // 'visible', not '': the injected CSS hides them by default, so the
       // fallback has to say so explicitly
-      c.querySelectorAll('[data-webgl-image], [data-webgl-overlay]')
-        .forEach((im) => { im.style.visibility = hidden ? 'hidden' : 'visible'; });
+      // both markups: the Webflow images, and the reference cards' media img
+      c.querySelectorAll('[data-webgl-image], [data-webgl-overlay], [data-mw="media"] img')
+        .forEach((im) => {
+          im.style.visibility = hidden ? 'hidden' : 'visible';
+          if (hidden) parkSrc(im); else restoreSrc(im);
+        });
     });
+  }
+
+  /* An image the GL layer draws is fetched twice: once by the browser for
+     the <img> itself, and once by the texture loader, which must ask with
+     CORS and so cannot share the first response's cache entry. The <img> is
+     hidden the whole time, so its copy is pure waste — a second request and,
+     worse on a phone, a second full-size decode per slide.
+
+     Park its src (bestSrc reads it back from here) and the request is either
+     never made or aborted. The fallback puts it straight back, so a machine
+     without WebGL still gets real images. */
+  function parkSrc(im) {
+    if (im.dataset.mwHeldSrc !== undefined || im.dataset.mwHeldSrcset !== undefined) return;
+    const src = im.getAttribute('src'), set = im.getAttribute('srcset');
+    if (!src && !set) return;
+    if (src !== null) { im.dataset.mwHeldSrc = src; im.removeAttribute('src'); }
+    if (set !== null) { im.dataset.mwHeldSrcset = set; im.removeAttribute('srcset'); }
+  }
+
+  function restoreSrc(im) {
+    if (im.dataset.mwHeldSrcset !== undefined) {
+      im.setAttribute('srcset', im.dataset.mwHeldSrcset);
+      delete im.dataset.mwHeldSrcset;
+    }
+    if (im.dataset.mwHeldSrc !== undefined) {
+      im.setAttribute('src', im.dataset.mwHeldSrc);
+      delete im.dataset.mwHeldSrc;
+    }
   }
 
   function attachGlHandlers(layer) {

@@ -513,7 +513,12 @@ export class GlLayer {
 function bestSrc(img) {
   if (!img) return '';
   if (img.dataset && img.dataset.webglSrc) return img.dataset.webglSrc;
-  const set = img.getAttribute('srcset');
+  /* index.js parks the DOM img's own src while GL is drawing, so the browser
+     does not fetch and decode every slide a second time — its request goes
+     out without CORS and cannot be shared with the texture's, which needs
+     CORS. Read the parked values back so nothing else has to know. */
+  const held = img.dataset || {};
+  const set = img.getAttribute('srcset') || held.mwHeldSrcset || '';
   if (set) {
     let best = '', bestW = -1;
     set.split(',').forEach((part) => {
@@ -525,7 +530,7 @@ function bestSrc(img) {
     });
     if (best) return best;
   }
-  return img.currentSrc || img.src || '';
+  return img.getAttribute('src') || held.mwHeldSrc || img.currentSrc || '';
 }
 
 export function cssColor(str) {
