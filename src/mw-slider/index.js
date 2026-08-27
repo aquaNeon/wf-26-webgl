@@ -1140,22 +1140,8 @@ export function init(root) {
   // stopPropagation: a close authored inside the card would otherwise bubble
   // to the card's own click handler and immediately reopen it
   const onCloseClick = (e) => { e.preventDefault(); e.stopPropagation(); closeCard(); };
-  /* Touch closes on pointerup rather than waiting for the click: a click is
-     the browser's reward for a tap it considered clean, and on a scrollable
-     page it withholds it often enough to read as a dead button. closeCard()
-     is idempotent, so the click that may still follow costs nothing. */
-  const onClosePointer = (e) => {
-    if (e.pointerType === 'mouse' || !isOpen) return;
-    e.stopPropagation();
-    closeGuardT = performance.now();
-    closeCard();
-  };
-  const bindClose = (c) => {
-    c.addEventListener('click', onCloseClick);
-    c.addEventListener('pointerup', onClosePointer);
-  };
-  closeAll.forEach(bindClose);
-  if (closeBtn && !closeAll.includes(closeBtn)) bindClose(closeBtn);
+  closeAll.forEach((c) => c.addEventListener('click', onCloseClick));
+  if (closeBtn && !closeAll.includes(closeBtn)) closeBtn.addEventListener('click', onCloseClick);
   /* Delegated as well as bound: a close that was not in the DOM when the
      module initialised — a CMS list that hydrates late, a component Webflow
      re-renders — never got a listener, and read as a dead button. Capture,
@@ -1165,9 +1151,6 @@ export function init(root) {
     const t = e.target;
     const hit = t && t.closest && t.closest('[data-mw="close"], [data-webgl-close], .mw-close');
     if (!hit) return;
-    // mouse is left to the click: closing on mouse-up would beat the
-    // browser's own click sequence and swallow a drag that ended here
-    if (e.type === 'pointerup' && e.pointerType === 'mouse') return;
     e.stopPropagation();
     closeGuardT = performance.now();
     closeCard();
@@ -1189,7 +1172,6 @@ export function init(root) {
     closeCard();
   };
   root.addEventListener('click', onCloseIntent, true);
-  root.addEventListener('pointerup', onCloseIntent, true);
   root.addEventListener('touchend', onCloseTouch, { capture: true, passive: false });
   addEventListener('keydown', onKey);
   // capture: the trap has to answer before anything in the page moves focus
@@ -1237,16 +1219,9 @@ export function init(root) {
       stage.removeEventListener('pointermove', onStageMove);
       stage.removeEventListener('pointerleave', onStageLeave);
       backdrop.removeEventListener('click', closeCard);
-      closeAll.forEach((c) => {
-        c.removeEventListener('click', onCloseClick);
-        c.removeEventListener('pointerup', onClosePointer);
-      });
-      if (closeBtn) {
-        closeBtn.removeEventListener('click', onCloseClick);
-        closeBtn.removeEventListener('pointerup', onClosePointer);
-      }
+      closeAll.forEach((c) => c.removeEventListener('click', onCloseClick));
+      if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       root.removeEventListener('click', onCloseIntent, true);
-      root.removeEventListener('pointerup', onCloseIntent, true);
       root.removeEventListener('touchend', onCloseTouch, true);
       removeEventListener('keydown', onKey);
       removeEventListener('keydown', onTrapKey, true);
@@ -1422,45 +1397,7 @@ export function injectCss() {
   document.head.appendChild(scaffold);
 }
 
-/* A phone has no console, so a tap that goes missing there is unfalsifiable
-   from a desk. ?mw-debug=1 paints the event stream onto the page itself:
-   what the finger actually landed on, what was topmost at that coordinate,
-   and whether the open state changed. Inert without the flag. */
-function attachDebug() {
-  if (typeof location === 'undefined' || !/[?&]mw-debug/.test(location.search)) return;
-  if (document.getElementById('mw-debug')) return;
-  const box = document.createElement('div');
-  box.id = 'mw-debug';
-  box.style.cssText = 'position:fixed;left:0;bottom:0;z-index:2147483647;background:#000;color:#0f0;'
-    + 'font:11px/1.35 ui-monospace,monospace;padding:6px;max-height:45vh;overflow:auto;width:100%;'
-    + 'white-space:pre-wrap;pointer-events:none';
-  const put = (line) => { box.textContent = line + String.fromCharCode(10) + box.textContent.slice(0, 3000); };
-  const mount = () => document.body.appendChild(box);
-  if (document.body) mount(); else addEventListener('DOMContentLoaded', mount);
-
-  const name = (el) => !el ? 'null'
-    : el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className
-      ? '.' + el.className.trim().split(/\s+/)[0] : '');
-  ['touchstart', 'touchend', 'touchcancel', 'pointerup', 'click'].forEach((type) => {
-    document.addEventListener(type, (e) => {
-      const t = e.changedTouches && e.changedTouches[0];
-      const at = t ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
-      const closeHit = at && at.closest && at.closest('[data-webgl-close], [data-mw="close"], .mw-close');
-      put(type + ' tgt=' + name(e.target) + ' at=' + name(at)
-        + (t ? ' @' + Math.round(t.clientX) + ',' + Math.round(t.clientY) : '')
-        + ' close=' + (closeHit ? 'YES' : 'no'));
-    }, true);
-  });
-  let was = null;
-  setInterval(() => {
-    const c = document.querySelector('[data-webgl-canvas]');
-    const now = !!(c && c.hasAttribute('data-mw-open'));
-    if (now !== was) { was = now; put('-- open=' + now + ' --'); }
-  }, 100);
-}
-
 export function initAll(scope) {
-  attachDebug();
   const out = [];
   (scope || document).querySelectorAll('[data-mw="root"], [data-webgl-canvas]').forEach((r) => {
     const i = init(r);
