@@ -1157,8 +1157,25 @@ export function init(root) {
     closeGuardT = performance.now();
     closeCard();
   };
+  /* And a raw touchend, hit-tested by coordinate rather than by target.
+     A click is the browser's reward for a tap it judged clean, and pointer
+     events can be retargeted or suppressed by whatever else is listening on
+     the page; touchend always fires. preventDefault() here also stops the
+     synthetic click, so nothing downstream can reopen the card. */
+  const onCloseTouch = (e) => {
+    if (!isOpen) return;
+    const t = e.changedTouches && e.changedTouches[0];
+    const at = t ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
+    const hit = at && at.closest && at.closest('[data-mw="close"], [data-webgl-close], .mw-close');
+    if (!hit) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeGuardT = performance.now();
+    closeCard();
+  };
   root.addEventListener('click', onCloseIntent, true);
   root.addEventListener('pointerup', onCloseIntent, true);
+  root.addEventListener('touchend', onCloseTouch, { capture: true, passive: false });
   addEventListener('keydown', onKey);
   // capture: the trap has to answer before anything in the page moves focus
   addEventListener('keydown', onTrapKey, true);
@@ -1215,6 +1232,7 @@ export function init(root) {
       }
       root.removeEventListener('click', onCloseIntent, true);
       root.removeEventListener('pointerup', onCloseIntent, true);
+      root.removeEventListener('touchend', onCloseTouch, true);
       removeEventListener('keydown', onKey);
       removeEventListener('keydown', onTrapKey, true);
       removeEventListener('resize', onResize);
