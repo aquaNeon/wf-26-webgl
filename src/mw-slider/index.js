@@ -1407,7 +1407,45 @@ export function injectCss() {
   document.head.appendChild(scaffold);
 }
 
+/* A phone has no console, so a tap that goes missing there is unfalsifiable
+   from a desk. ?mw-debug=1 paints the event stream onto the page itself:
+   what the finger actually landed on, what was topmost at that coordinate,
+   and whether the open state changed. Inert without the flag. */
+function attachDebug() {
+  if (typeof location === 'undefined' || !/[?&]mw-debug/.test(location.search)) return;
+  if (document.getElementById('mw-debug')) return;
+  const box = document.createElement('div');
+  box.id = 'mw-debug';
+  box.style.cssText = 'position:fixed;left:0;bottom:0;z-index:2147483647;background:#000;color:#0f0;'
+    + 'font:11px/1.35 ui-monospace,monospace;padding:6px;max-height:45vh;overflow:auto;width:100%;'
+    + 'white-space:pre-wrap;pointer-events:none';
+  const put = (line) => { box.textContent = line + String.fromCharCode(10) + box.textContent.slice(0, 3000); };
+  const mount = () => document.body.appendChild(box);
+  if (document.body) mount(); else addEventListener('DOMContentLoaded', mount);
+
+  const name = (el) => !el ? 'null'
+    : el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className
+      ? '.' + el.className.trim().split(/\s+/)[0] : '');
+  ['touchstart', 'touchend', 'touchcancel', 'pointerup', 'click'].forEach((type) => {
+    document.addEventListener(type, (e) => {
+      const t = e.changedTouches && e.changedTouches[0];
+      const at = t ? document.elementFromPoint(t.clientX, t.clientY) : e.target;
+      const closeHit = at && at.closest && at.closest('[data-webgl-close], [data-mw="close"], .mw-close');
+      put(type + ' tgt=' + name(e.target) + ' at=' + name(at)
+        + (t ? ' @' + Math.round(t.clientX) + ',' + Math.round(t.clientY) : '')
+        + ' close=' + (closeHit ? 'YES' : 'no'));
+    }, true);
+  });
+  let was = null;
+  setInterval(() => {
+    const c = document.querySelector('[data-webgl-canvas]');
+    const now = !!(c && c.hasAttribute('data-mw-open'));
+    if (now !== was) { was = now; put('-- open=' + now + ' --'); }
+  }, 100);
+}
+
 export function initAll(scope) {
+  attachDebug();
   const out = [];
   (scope || document).querySelectorAll('[data-mw="root"], [data-webgl-canvas]').forEach((r) => {
     const i = init(r);
