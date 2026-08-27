@@ -299,6 +299,11 @@ export function init(root) {
   let rowFrom = null, rowTo = 0;
   let landed = false, landedT = 0, tipT = 0, closeT = 0;
   let ready = false;
+  /* A touch close fires on pointerup, and the click the browser sends after
+     it is aimed at whatever is under the finger BY THEN — the row card the
+     open one was covering. Without this the card closes and reopens in the
+     same tap, which reads as a close button that does nothing. */
+  let closeGuardT = -1e9;
   const bornT = performance.now();
   let pointerX = -1e5, pointerOn = false;
   let dragging = false, pointerId = null, lastX = 0, travel = 0, downCard = -1, wheelLock = 0;
@@ -1060,7 +1065,8 @@ export function init(root) {
     removeEventListener('pointermove', onMove);
     removeEventListener('pointerup', onUp);
     removeEventListener('pointercancel', onUp);
-    if (tapped && card >= 0 && !isOpen && e.type === 'pointerup' && e.pointerType !== 'mouse') {
+    if (tapped && card >= 0 && !isOpen && e.type === 'pointerup' && e.pointerType !== 'mouse'
+        && performance.now() - closeGuardT >= 500) {
       openCard(card);
     }
   }
@@ -1079,6 +1085,7 @@ export function init(root) {
     const click = (e) => {
       e.preventDefault();
       if (travel > 6 || isOpen) return;
+      if (performance.now() - closeGuardT < 500) return;   // the tap that just closed
       openCard(i);
     };
     const key = (e) => {
@@ -1125,6 +1132,7 @@ export function init(root) {
   const onClosePointer = (e) => {
     if (e.pointerType === 'mouse' || !isOpen) return;
     e.stopPropagation();
+    closeGuardT = performance.now();
     closeCard();
   };
   const bindClose = (c) => {
@@ -1146,6 +1154,7 @@ export function init(root) {
     // browser's own click sequence and swallow a drag that ended here
     if (e.type === 'pointerup' && e.pointerType === 'mouse') return;
     e.stopPropagation();
+    closeGuardT = performance.now();
     closeCard();
   };
   root.addEventListener('click', onCloseIntent, true);
