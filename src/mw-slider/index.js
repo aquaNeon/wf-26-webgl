@@ -88,6 +88,21 @@ export function init(root) {
     }
     return null;
   })();
+  /* The heading is an absolutely positioned overlay the project sizes to
+     taste, and the canvas sets `perspective`, which makes it a stacking
+     context — so everything the module draws is trapped below any sibling
+     with a z-index, the heading included. A heading box grown to meet the
+     row then sits invisibly over the open card's close button and eats the
+     tap. It is decoration, so it should never take a pointer; only leave it
+     interactive if the project put something focusable in it. */
+  if (headEl && !headEl.querySelector('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')) {
+    headEl.style.pointerEvents = 'none';
+    const box = headEl.closest('[class*="contain"], [class*="wrap"]');
+    if (box && box !== root && !root.contains(box) && !box.contains(root)
+        && !box.querySelector('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')) {
+      box.style.pointerEvents = 'none';
+    }
+  }
   const countEl = root.querySelector('[data-mw="counter"]');
   const indexEl = root.querySelector('[data-mw="index"]');
   const totalEl = root.querySelector('[data-mw="total"]');
