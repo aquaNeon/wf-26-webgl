@@ -1133,6 +1133,23 @@ export function init(root) {
   };
   closeAll.forEach(bindClose);
   if (closeBtn && !closeAll.includes(closeBtn)) bindClose(closeBtn);
+  /* Delegated as well as bound: a close that was not in the DOM when the
+     module initialised — a CMS list that hydrates late, a component Webflow
+     re-renders — never got a listener, and read as a dead button. Capture,
+     so it answers before anything in the page can swallow the event. */
+  const onCloseIntent = (e) => {
+    if (!isOpen) return;
+    const t = e.target;
+    const hit = t && t.closest && t.closest('[data-mw="close"], [data-webgl-close], .mw-close');
+    if (!hit) return;
+    // mouse is left to the click: closing on mouse-up would beat the
+    // browser's own click sequence and swallow a drag that ended here
+    if (e.type === 'pointerup' && e.pointerType === 'mouse') return;
+    e.stopPropagation();
+    closeCard();
+  };
+  root.addEventListener('click', onCloseIntent, true);
+  root.addEventListener('pointerup', onCloseIntent, true);
   addEventListener('keydown', onKey);
   // capture: the trap has to answer before anything in the page moves focus
   addEventListener('keydown', onTrapKey, true);
@@ -1187,6 +1204,8 @@ export function init(root) {
         closeBtn.removeEventListener('click', onCloseClick);
         closeBtn.removeEventListener('pointerup', onClosePointer);
       }
+      root.removeEventListener('click', onCloseIntent, true);
+      root.removeEventListener('pointerup', onCloseIntent, true);
       removeEventListener('keydown', onKey);
       removeEventListener('keydown', onTrapKey, true);
       removeEventListener('resize', onResize);
