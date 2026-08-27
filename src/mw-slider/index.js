@@ -1118,8 +1118,21 @@ export function init(root) {
   // stopPropagation: a close authored inside the card would otherwise bubble
   // to the card's own click handler and immediately reopen it
   const onCloseClick = (e) => { e.preventDefault(); e.stopPropagation(); closeCard(); };
-  closeAll.forEach((c) => c.addEventListener('click', onCloseClick));
-  if (closeBtn && !closeAll.includes(closeBtn)) closeBtn.addEventListener('click', onCloseClick);
+  /* Touch closes on pointerup rather than waiting for the click: a click is
+     the browser's reward for a tap it considered clean, and on a scrollable
+     page it withholds it often enough to read as a dead button. closeCard()
+     is idempotent, so the click that may still follow costs nothing. */
+  const onClosePointer = (e) => {
+    if (e.pointerType === 'mouse' || !isOpen) return;
+    e.stopPropagation();
+    closeCard();
+  };
+  const bindClose = (c) => {
+    c.addEventListener('click', onCloseClick);
+    c.addEventListener('pointerup', onClosePointer);
+  };
+  closeAll.forEach(bindClose);
+  if (closeBtn && !closeAll.includes(closeBtn)) bindClose(closeBtn);
   addEventListener('keydown', onKey);
   // capture: the trap has to answer before anything in the page moves focus
   addEventListener('keydown', onTrapKey, true);
@@ -1166,8 +1179,14 @@ export function init(root) {
       stage.removeEventListener('pointermove', onStageMove);
       stage.removeEventListener('pointerleave', onStageLeave);
       backdrop.removeEventListener('click', closeCard);
-      closeAll.forEach((c) => c.removeEventListener('click', onCloseClick));
-      if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
+      closeAll.forEach((c) => {
+        c.removeEventListener('click', onCloseClick);
+        c.removeEventListener('pointerup', onClosePointer);
+      });
+      if (closeBtn) {
+        closeBtn.removeEventListener('click', onCloseClick);
+        closeBtn.removeEventListener('pointerup', onClosePointer);
+      }
       removeEventListener('keydown', onKey);
       removeEventListener('keydown', onTrapKey, true);
       removeEventListener('resize', onResize);
@@ -1321,6 +1340,15 @@ export function injectCss() {
    both lies while it's up. Appended and forced because the grab hand is often
    authored on the Webflow class itself, which the defaults sheet loses to.
    The tag's links and the close button keep their own hand. */
+/* pan-y lets a tap that drifts a pixel become a page scroll, and a scrolled
+   tap has its click suppressed — which is why the close answered a mouse but
+   not a finger. An open card owns the gesture; the row underneath is not
+   scrollable anyway while it is up. */
+[data-webgl-canvas][data-mw-open]{touch-action:none}
+[data-webgl-canvas] .mw-tip-hold [data-webgl-close],
+[data-webgl-canvas] .mw-tip-hold [data-mw="close"],
+[data-webgl-canvas] .mw-tip-hold a,
+[data-webgl-canvas] .mw-close{touch-action:manipulation}
 [data-webgl-canvas][data-mw-open]{cursor:default!important}
 [data-webgl-canvas][data-mw-open] [data-webgl-item]{cursor:default!important}
 [data-webgl-canvas][data-mw-open] [data-webgl-item] *{cursor:inherit}
